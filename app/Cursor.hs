@@ -56,12 +56,9 @@ prevType (CN t a) = CN (nextConsistsOf t) a
 
 reachableRanges :: String -> MetaCursor -> [(Cursor, (Natural, Natural))]
 reachableRanges s [] = [([], (0, genericLength s))]
-reachableRanges s (Char : rest) =
-  let r = reachableRanges s rest
-   in concat [[(CN Char c : cur, (pos + c, 1)) | c <- natRange 0 len] | (cur, (pos, len)) <- r]
-        ++ case r of [] -> []; _ : _ -> let (cur, (pos, len)) = last r in [(CN Char (pos + len) : cur, (pos + len, 0))]
-reachableRanges s (Word : rest) = concat [[(CN Word i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitWords (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
-reachableRanges s (Line : rest) = concat [[(CN Line i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitLines (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
+reachableRanges s (Char : rest) = concat [[(CN Char c : cur, (pos + c, i)) | (c, i) <- zip (natRange 0 len) (repeat 1) ++ [(len, 0)] ] | (cur, (pos, len)) <- reachableRanges s rest]
+reachableRanges s (Word : rest) = concat [[(CN Word i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitWords (slice (pos, len) s) ++ [(pos + len, 0)])] | (cur, (pos, len)) <- reachableRanges s rest]
+reachableRanges s (Line : rest) = concat [[(CN Line i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitLines (slice (pos, len) s) ++ [(pos + len, 0)])] | (cur, (pos, len)) <- reachableRanges s rest]
 reachableRanges s path@(ASTNode : _) =
   let ns = takeWhile (== ASTNode) path
    in concat
@@ -78,7 +75,7 @@ reachableRanges s path@(ASTNode : _) =
                           | (i, node) <- zip [0 ..] nodes
                         ]
                     ranges _ _ = []
-                _ -> []
+                _ -> [([], (0, genericLength s))]
           | (cur, (pos, len)) <- reachableRanges s (dropWhile (== ASTNode) path)
         ]
 
@@ -111,7 +108,7 @@ findCursor s c mc = case (ideal, case cmp of LT -> after; _ -> before) of
 
     covered = filter (\(_, r') -> r `covers` r') ranges
     cover = filter (\(_, r') -> r' `covers` r) ranges
-    ideal = cover ++ covered
+    ideal = covered ++ cover
 
     before = filter (\(_, r') -> r' < r) ranges
     after = filter (\(_, r') -> r' > r) ranges
@@ -219,6 +216,26 @@ firstChild s cursor = case childrenOf s cursor of
   c : _ -> c : cursor
   _ -> cursor
 
+bestASTNode :: String -> Cursor -> Cursor
+bestASTNode s c = case concatMap (go []) allNodes of [] -> []; c:_ -> c
+  where
+    range = getCursorRange s c
+
+    allNodes = case parseParensE s of
+      Right n -> Just n
+      Left _ -> Nothing
+
+    astNodeCovers (Parens _ from to) = fromToToPosLens s (from, to) `covers` range
+    astNodeCovers (Token _ from to) = fromToToPosLens s (from, to) `covers` range
+
+
+    go :: Cursor -> Node -> [Cursor]
+    go cur (Token {}) = [cur]
+    go cur self@(Parens nodes _ _)
+      | astNodeCovers self = case filter (astNodeCovers . snd) (zip [0..] nodes) of
+        [] -> [cur]
+        nodes' -> concatMap (\(i, n) -> go (CN ASTNode i : cur) n) nodes'
+      | otherwise = []
 -- moveTo :: String -> Cursor -> Cursor -> Cursor
 
 type Cursor = [CursorNode]

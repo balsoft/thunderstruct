@@ -11,7 +11,7 @@ import Control.Lens
 import Cursor
 import Data.Default.Class
 import Data.List (genericLength)
-import Data.List.Index (modifyAt)
+import Data.List.Index (modifyAt, setAt)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import System.Process (callProcess, readProcess)
@@ -81,6 +81,15 @@ prevTypeSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents c (
 nextTypeSibling :: App -> App
 nextTypeSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 nextType c)) $ app
 
+firstTypeSibling :: App -> App
+firstTypeSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 (\c -> c { cursorType = minBound }) c)) $ app
+
+lastTypeSibling :: App -> App
+lastTypeSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 (\c -> c { cursorType = maxBound }) c)) $ app
+
+toBestASTNode :: App -> App
+toBestASTNode app@App {..} = cursors . ix 0 %~ bestASTNode _contents $ app
+
 insertMode :: App -> App
 insertMode = (cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; old :| rest -> (CN Char 0 : old) :| rest)) . (mode .~ Insert)
 
@@ -91,14 +100,14 @@ insertAfter :: Prelude.Char -> App -> App
 insertAfter c app@App {..} = contents %~ insertAt (getCharacterPos _contents (NE.head _cursors)) c $ fixCursor app
 
 insert :: Prelude.Char -> App -> App
-insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents' c + 1)] c) $ contents .~ contents' $ app
+insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c + 1)] c) $ contents .~ contents' $ app
   where contents' = insertAt (getCharacterPos _contents (NE.head _cursors)) char _contents
 
 deleteUnderCursor :: App -> App
 deleteUnderCursor app@App {..} = contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ app
 
 deleteCharacter :: App -> App
-deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents' c ?- (1 :: Int))] c) $ contents .~ contents' $ app
+deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c ?- (1 :: Int))] c) $ contents .~ contents' $ app
   where contents' = deleteAt (getCharacterPos _contents (NE.head _cursors) ?- (1 :: Int) :: Int) _contents
 
 yank :: App -> IO App

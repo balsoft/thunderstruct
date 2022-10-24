@@ -103,7 +103,7 @@ natRange f t = fromIntegral <$> [fromIntegral f .. (fromIntegral t - 1 :: Int)]
 -- rangeWith s f = reverse $ foldl (\lst word -> case lst of ((pos, len) : _) -> (pos + len, genericLength word) : lst; [] -> [(0, genericLength word)]) [] (f s)
 
 covers :: (Ord a, Num a) => (a, a) -> (a, a) -> Bool
-covers (p, l) (p', l') = p >= p' && p + l <= p' + l'
+covers (p, l) (p', l') = p <= p' && p + l >= p' + l'
 
 natOr0 :: Int -> Natural
 natOr0 x = fromIntegral (max 0 x)

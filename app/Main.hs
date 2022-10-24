@@ -186,12 +186,15 @@ handleSequence app@(App {..}) c
   | c == "\ESC[C" = return $ nextSibling app -- →
   | c == "\ESC[H" = return $ firstSibling app -- Home
   | c == "\ESC[F" = return $ lastSibling app -- End
+  | c == "\ESC:" = return $ toBestASTNode app
   -- \| c == '\DEL' = return $ deleteUnderCursor app
   | _mode == Normal = case c of
       "\ESCh" -> return $ prevTypeSibling app
+      "\ESCH" -> return $ firstTypeSibling app
       "\ESCj" -> return $ child app
       "\ESCk" -> return $ parent app
       "\ESCl" -> return $ nextTypeSibling app
+      "\ESCL" -> return $ lastTypeSibling app
       "h" -> return $ prevSibling app
       "j" -> return $ nextCousin app
       "k" -> return $ prevCousin app
