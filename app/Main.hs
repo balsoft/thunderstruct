@@ -55,7 +55,7 @@ showRanges = concatMap (\(len, pos) -> show len ++ "[" ++ show pos ++ "]")
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport app@App {..} =
-  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message)) ++ "\n",
+  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ align width AlignLeft ' ' (concat (maybeToList (app ^. message))) "",
     align
       width
       AlignLeft
@@ -135,7 +135,7 @@ render app@App {..} = do
       let ((y, x), (y', x')) = relativeCursorPosition _contents (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
-      let !screen = align (fromIntegral h + 2) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
+      let !screen = align (fromIntegral h + 1) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
       setSGR [SetDefaultColor Background]
       setCursorPosition 0 0
       mapM_ putStr screen
