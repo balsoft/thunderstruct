@@ -35,6 +35,7 @@ cleanup :: IO ()
 cleanup = do
   setup
   setSGR [SetDefaultColor Background]
+  clearScreen
   showCursor
 
 data AlignPriority = AlignLeft | AlignRight
@@ -54,7 +55,7 @@ showRanges = concatMap (\(len, pos) -> show len ++ "[" ++ show pos ++ "]")
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport app@App {..} =
-  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message)),
+  [ align width AlignLeft ' ' (setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message))) "\n",
     align
       width
       AlignLeft
@@ -125,7 +126,7 @@ render app@App {..} = do
   hideCursor
   size <- getTerminalSize
   case size of
-    Nothing -> pure ()
+    Nothing -> render app
     Just (h, w) -> do
       let (vy, vx) = optimalViewport (fromIntegral h, fromIntegral w) app
       let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines (app ^. contents))
