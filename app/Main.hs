@@ -55,7 +55,7 @@ showRanges = concatMap (\(len, pos) -> show len ++ "[" ++ show pos ++ "]")
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport app@App {..} =
-  [ align width AlignLeft ' ' (setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message))) "\n",
+  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message)) ++ "\n",
     align
       width
       AlignLeft
