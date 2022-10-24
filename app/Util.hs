@@ -85,9 +85,11 @@ splitLines :: [Char] -> [(Natural, Natural)]
 splitLines = splitBy' lineSep
 
 nthThing :: (a -> Bool) -> [a] -> Natural -> (Natural, Natural)
-nthThing predicate buf n = fromMaybe
-  (uncurry (+) (last s), 0)
-  (s ?+! n)
+nthThing predicate buf n = case s ?+! n of
+  Just s' -> s'
+  Nothing -> case s of
+    _:_ -> (uncurry (+) (last s), 0)
+    _ -> (0, 0)
   where s = splitBy' predicate buf
 
 nthWord :: [Char] -> Natural -> (Natural, Natural)

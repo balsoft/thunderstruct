@@ -55,19 +55,19 @@ nextSibling :: App -> App
 nextSibling app@App {..} = fixCursor $ cursors . ix 0 %~ modifyAt 0 (>+ 1) $ app
 
 prevSibling :: App -> App
-prevSibling app@App {..} = cursors . ix 0 %~  modifyAt 0 (>- 1) $ app
+prevSibling app@App {..} = fixCursor $ cursors . ix 0 %~  modifyAt 0 (>- 1) $ app
 
 firstSibling :: App -> App
-firstSibling = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = 0 })
+firstSibling = fixCursor . (cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = 0 }))
 
 lastSibling :: App -> App
 lastSibling app@App {..} = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = genericLength (childrenOfType _contents (tail $ NE.head _cursors) (cursorType $ head $ NE.head _cursors)) ?- 1 }) $ app
 
 nextCousin :: App -> App
-nextCousin = cursors . ix 0 %~ modifyAt 1 (>+ 1)
+nextCousin = fixCursor . (cursors . ix 0 %~ modifyAt 1 (>+ 1))
 
 prevCousin :: App -> App
-prevCousin = cursors . ix 0 %~ modifyAt 1 (>- 1)
+prevCousin = fixCursor . (cursors . ix 0 %~ modifyAt 1 (>- 1))
 
 parent :: App -> App
 parent = cursors . ix 0 %~ drop 1

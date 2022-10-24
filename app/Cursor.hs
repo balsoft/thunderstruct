@@ -3,14 +3,18 @@
 module Cursor where
 
 import AST
-    ( fromToToPosLens, parseParensE, traverseAST, Node(Parens, Token) )
-import Control.Lens ( (%~), (+~), Field1(_1) )
+  ( Node (Parens, Token),
+    fromToToPosLens,
+    parseParensE,
+    traverseAST,
+  )
+import Control.Lens (Field1 (_1), (%~), (+~))
 import Data.List (genericLength, genericTake)
 import Data.List.NonEmpty (NonEmpty)
+import Debug.Trace (traceShowId)
 import Numeric.Natural (Natural)
 import Util
 import Prelude hiding (Char, Word)
-import Debug.Trace (traceShowId)
 
 data CursorType = Char | Word | Line | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
 
@@ -52,7 +56,10 @@ prevType (CN t a) = CN (nextConsistsOf t) a
 
 reachableRanges :: String -> MetaCursor -> [(Cursor, (Natural, Natural))]
 reachableRanges s [] = [([], (0, genericLength s))]
-reachableRanges s (Char : rest) = let r = reachableRanges s rest in concat [[(CN Char c : cur, (pos + c, 1)) | c <- natRange 0 len] | (cur, (pos, len)) <- r] ++ let (cur, (pos, len)) = last r in [(CN Char (pos + len) : cur, (pos + len, 0))]
+reachableRanges s (Char : rest) =
+  let r = reachableRanges s rest
+   in concat [[(CN Char c : cur, (pos + c, 1)) | c <- natRange 0 len] | (cur, (pos, len)) <- r]
+        ++ case r of [] -> []; _ : _ -> let (cur, (pos, len)) = last r in [(CN Char (pos + len) : cur, (pos + len, 0))]
 reachableRanges s (Word : rest) = concat [[(CN Word i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitWords (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
 reachableRanges s (Line : rest) = concat [[(CN Line i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitLines (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
 reachableRanges s path@(ASTNode : _) =
@@ -83,7 +90,6 @@ reachableRanges s path@(ASTNode : _) =
 --     go [] c = [(c, getCursorRange s c)]
 --     go (mc : mcs) c = concatMap (go mcs . (:c)) (childrenOfType s c mc)
 
-
 compareCursors :: Ord a => [a] -> [a] -> Ordering
 compareCursors (a : as) (b : bs)
   | a == b = compareCursors as bs
@@ -91,7 +97,6 @@ compareCursors (a : as) (b : bs)
 compareCursors [] [] = EQ
 compareCursors [] _ = LT
 compareCursors _ [] = GT
-
 
 findCursor :: String -> Cursor -> MetaCursor -> Cursor
 findCursor _ _ [] = []
@@ -145,7 +150,7 @@ characterPosition buf i =
   let linesBefore = splitLines (genericTake i buf)
       lineNo = genericLength linesBefore ?- 1
       characterNo = case linesBefore of
-        (l:_) -> snd $ last linesBefore
+        (_ : _) -> snd $ last linesBefore
         _ -> 0
    in (lineNo, characterNo)
 
@@ -180,7 +185,6 @@ childrenOfType s cur t =
 
 childrenOf :: String -> Cursor -> [CursorNode]
 childrenOf s c = concatMap (childrenOfType s c) $ reverse [minBound .. maxBound]
-
 
 -- childrenOfType _ (CN Char _ : _) _ = []
 -- childrenOfType s cur@(CN t _ : _) Char = if t > Char then map (CN Char) [0..(snd $ getCursorRange s cur)] else []
