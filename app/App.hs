@@ -48,8 +48,11 @@ instance Default App where
 
 $(makeLenses ''App)
 
+-- fixCursor :: App -> ApV
+-- fixCursor app@App {..} = cursors . ix 0 %~ (\cur -> case cur of (CN {..}):cs | idx > genericLength (childrenOfType _contents cs cursorType) -> CN (genericLength (childrenOfType _contents cs cursorType)) cursorType : cs; _ -> cur)
+
 nextSibling :: App -> App
-nextSibling app@App {..} = cursors . ix 0 %~ (\cur -> case cur of (CN {..}):cs | idx + 1 < genericLength (childrenOfType _contents cs cursorType) -> modifyAt 0 (>+ 1) cur; _ -> cur) $ app
+nextSibling app@App {..} = fixCursor $ cursors . ix 0 %~ modifyAt 0 (>+ 1) $ app
 
 prevSibling :: App -> App
 prevSibling app@App {..} = cursors . ix 0 %~  modifyAt 0 (>- 1) $ app
@@ -58,7 +61,7 @@ firstSibling :: App -> App
 firstSibling = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = 0 })
 
 lastSibling :: App -> App
-lastSibling app@App {..} = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = genericLength (childrenOfType _contents (tail $ NE.head _cursors) (cursorType $ head $ NE.head _cursors)) ?- 2 }) $ app
+lastSibling app@App {..} = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = genericLength (childrenOfType _contents (tail $ NE.head _cursors) (cursorType $ head $ NE.head _cursors)) ?- 1 }) $ app
 
 nextCousin :: App -> App
 nextCousin = cursors . ix 0 %~ modifyAt 1 (>+ 1)
