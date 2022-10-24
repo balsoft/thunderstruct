@@ -65,9 +65,9 @@ traverseAST (_ : _) node' = Right node'
 traverseAST [] n = Right n
 
 fromToToPosLen :: String -> SourcePos -> Natural
-fromToToPosLen s from = fromIntegral $ lpos + sourceColumn from - 1
+fromToToPosLen s from = fromIntegral $ lpos + fromIntegral (sourceColumn from) - 1
   where
-    (lpos, _) = nthThing lines' s (sourceLine from - 1)
+    (lpos, _) = splitLines s !! (sourceLine from - 1)
 
 fromToToPosLens :: String -> (SourcePos, SourcePos) -> (Natural, Natural)
 fromToToPosLens s (from, to) = (c, c' - c)

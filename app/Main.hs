@@ -41,8 +41,8 @@ data AlignPriority = AlignLeft | AlignRight
 
 align :: Natural -> AlignPriority -> a -> [a] -> [a] -> [a]
 align size prio filler left right = case prio of
-  AlignLeft -> genericTake size left ++ replicate (fromIntegral size - l) filler ++ drop (length left - fromIntegral size) right
-  AlignRight -> take (fromIntegral size - length right) left ++ replicate (fromIntegral size - l) filler ++ genericTake size right
+  AlignLeft -> genericTake size left ++ replicate (size ?- l) filler ++ drop (length left ?- size) right
+  AlignRight -> take (size ?- length right) left ++ replicate (size ?- l) filler ++ genericTake size right
   where
     l = length left + length right
 
@@ -54,24 +54,24 @@ showRanges = concatMap (\(len, pos) -> show len ++ "[" ++ show pos ++ "]")
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport app@App {..} =
-  (setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] : maybeToList (app ^. message))
-    <> [ align
-           width
-           AlignLeft
-           ' '
-           (show (app ^. mode) ++ "@" ++ show (reverse $ NE.head _cursors) ++ "→" ++ showRanges (getCursorRanges _contents _cursors))
-           (show (app ^. file) ++ "@" ++ showPos viewport)
-       ]
+  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ concat (maybeToList (app ^. message)),
+    align
+      width
+      AlignLeft
+      ' '
+      (show (app ^. mode) ++ "@" ++ show (reverse $ NE.head _cursors) ++ "→" ++ showRanges (getCursorRanges _contents _cursors))
+      (show (app ^. file) ++ "@" ++ showPos viewport)
+  ]
 
 -- isWithinRange :: Ord a => a -> (a, a) -> Bool
 -- isWithinRange value (from, to) = value >= from && value < to
 
 optimalViewport :: (Natural, Natural) -> App -> (Natural, Natural)
-optimalViewport (h, w) App {..} = (fromIntegral vy, fromIntegral vx)
+optimalViewport (h, w) App {..} = (vy, vx)
   where
     ((y, x), (y', x')) = getCursorAbsolute _contents (NE.head _cursors)
-    vx = maximum [0, fromIntegral x - fromIntegral w :: Int, fromIntegral x' - fromIntegral w :: Int]
-    vy = max 0 (fromIntegral ((y + y') `div` 2) - fromIntegral (h `div` 2) :: Int)
+    vx = max (x ?- w) (x' ?- w)
+    vy = ((y + y') `div` 2) ?- (h `div` 2)
 
 relativeCursorPosition :: String -> (Natural, Natural) -> Cursor -> ((Natural, Natural), (Natural, Natural))
 relativeCursorPosition buf (vy, vx) cursor =
@@ -125,13 +125,13 @@ render app@App {..} = do
   hideCursor
   Just (h, w) <- getTerminalSize
   let (vy, vx) = optimalViewport (fromIntegral h, fromIntegral w) app
-  let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "↵") . genericDrop vx <$> genericDrop vy (lines (app ^. contents))
+  let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines (app ^. contents))
   let activeCursor = NE.head _cursors
   let cursorParents = reverse $ take 3 [((case n of 0 -> 0; _ -> 255, case n of 0 -> 255; 1 -> 236; 2 -> 233; _ -> 0), relativeCursorPosition _contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
   let ((y, x), (y', x')) = relativeCursorPosition _contents (vy, vx) activeCursor
   -- We're assuming that if y == y', then x < x'
   let coloredContent = lines $ colorRegions cursorParents content
-  let !screen = align (fromIntegral h) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
+  let !screen = align (fromIntegral h + 2) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
   setSGR [SetDefaultColor Background]
   setCursorPosition 0 0
   mapM_ putStr screen

@@ -9,17 +9,8 @@ import Data.List (genericLength, genericTake)
 import Data.List.NonEmpty (NonEmpty)
 import Numeric.Natural (Natural)
 import Util
-    ( (?-),
-      lines',
-      nthThing,
-      slice,
-      words',
-      foldlPairs,
-      covers,
-      natRange,
-      rangeWith,
-      itemsIn )
 import Prelude hiding (Char, Word)
+import Debug.Trace (traceShowId)
 
 data CursorType = Char | Word | Line | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
 
@@ -59,12 +50,11 @@ nextType (CN t a) = CN (prevConstituent' t) a
 prevType :: CursorNode -> CursorNode
 prevType (CN t a) = CN (nextConsistsOf t) a
 
-
 reachableRanges :: String -> MetaCursor -> [(Cursor, (Natural, Natural))]
 reachableRanges s [] = [([], (0, genericLength s))]
-reachableRanges s (Char : rest) = concat [[(CN Char c : cur, (pos + c, 1)) | c <- natRange 0 len] | (cur, (pos, len)) <- reachableRanges s rest]
-reachableRanges s (Word : rest) = concat [[(CN Word i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (rangeWith (slice (pos, len) s) words'), len' /= 0] | (cur, (pos, len)) <- reachableRanges s rest]
-reachableRanges s (Line : rest) = concat [[(CN Line i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (rangeWith (slice (pos, len) s) lines'), len' /= 0] | (cur, (pos, len)) <- reachableRanges s rest]
+reachableRanges s (Char : rest) = let r = reachableRanges s rest in concat [[(CN Char c : cur, (pos + c, 1)) | c <- natRange 0 len] | (cur, (pos, len)) <- r] ++ let (cur, (pos, len)) = last r in [(CN Char (pos + len) : cur, (pos + len, 0))]
+reachableRanges s (Word : rest) = concat [[(CN Word i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitWords (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
+reachableRanges s (Line : rest) = concat [[(CN Line i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitLines (slice (pos, len) s))] | (cur, (pos, len)) <- reachableRanges s rest]
 reachableRanges s path@(ASTNode : _) =
   let ns = takeWhile (== ASTNode) path
    in concat
@@ -116,7 +106,7 @@ findCursor s c mc = case (ideal, case cmp of LT -> after; _ -> before) of
 
     covered = filter (\(_, r') -> r `covers` r') ranges
     cover = filter (\(_, r') -> r' `covers` r) ranges
-    ideal = covered ++ cover
+    ideal = cover ++ covered
 
     before = filter (\(_, r') -> r' < r) ranges
     after = filter (\(_, r') -> r' > r) ranges
@@ -130,8 +120,8 @@ coerceCursor s c c' = findCursor s c (metaCursor c')
 getCursorRange :: String -> Cursor -> (Natural, Natural)
 getCursorRange buf [] = (0, genericLength buf)
 getCursorRange buf ((CN Char c) : xs) = let (pos, len) = getCursorRange buf xs in (pos + min len c, min 1 $ len ?- c)
-getCursorRange buf ((CN Word w) : xs) = let (pos, len) = getCursorRange buf xs in _1 +~ pos $ nthThing words' (slice (pos, len) buf) w
-getCursorRange buf ((CN Line l) : xs) = let (pos, len) = getCursorRange buf xs in _1 +~ pos $ nthThing lines' (slice (pos, len) buf) l
+getCursorRange buf ((CN Word w) : xs) = let (pos, len) = getCursorRange buf xs in _1 +~ pos $ nthWord (slice (pos, len) buf) w
+getCursorRange buf ((CN Line l) : xs) = let (pos, len) = getCursorRange buf xs in _1 +~ pos $ nthLine (slice (pos, len) buf) l
 getCursorRange buf xs
   | all ((ASTNode ==) . cursorType) xs = case parseParensE buf of
       Right result -> fromToToPosLens buf $ case traverseAST (reverse $ map idx xs) result of
@@ -152,10 +142,11 @@ getCursorRanges buf = fmap (getCursorRange buf)
 
 characterPosition :: String -> Natural -> (Natural, Natural)
 characterPosition buf i =
-  let linesBefore = lines' (genericTake i buf)
-      lineNo = genericLength linesBefore - 1
-      charactersBefore = last linesBefore
-      characterNo = genericLength charactersBefore
+  let linesBefore = splitLines (genericTake i buf)
+      lineNo = genericLength linesBefore ?- 1
+      characterNo = case linesBefore of
+        (l:_) -> snd $ last linesBefore
+        _ -> 0
    in (lineNo, characterNo)
 
 getCursorAbsolute :: String -> Cursor -> ((Natural, Natural), (Natural, Natural))
@@ -179,8 +170,8 @@ childrenOfType s cur t =
     then []
     else map (CN t) $ case t of
       Char -> [0 .. (snd $ getCursorRange s cur)]
-      Word -> itemsIn s (getCursorRange s cur) words'
-      Line -> itemsIn s (getCursorRange s cur) lines'
+      Word -> itemsIn s (getCursorRange s cur) splitWords
+      Line -> itemsIn s (getCursorRange s cur) splitLines
       ASTNode -> case parseParensE s of
         Right root@(Parens {}) -> case traverseAST (reverse $ map idx cur) root of
           Right (Parens children _ _) -> [0 .. genericLength children]

@@ -2,6 +2,7 @@ module Util where
 
 import Numeric.Natural
 import Data.List (genericTake, genericLength, genericDrop)
+import Data.Maybe (fromMaybe)
 
 remove :: Eq a => a -> [a] -> [a]
 remove element = filter (/= element)
@@ -17,34 +18,36 @@ insertMany :: Integral idx => idx -> [a] -> [a] -> [a]
 insertMany idx elems lst = genericTake idx lst ++ elems ++ genericDrop idx lst
 
 deleteAt :: Integral idx => idx -> [a] -> [a]
-deleteAt idx xs = lft ++ rgt
-  where (lft, _:rgt) = splitAt (fromIntegral idx) xs
+deleteAt idx xs = lft ++ drop 1 rgt
+  where
+    (lft, rgt) = splitAt (fromIntegral idx) xs
 
 deleteMany :: Integral idx => (idx, idx) -> [a] -> [a]
 deleteMany (idx, cnt) xs = genericTake idx xs ++ genericDrop (idx + cnt) xs
 
-splitBy' :: (Char -> Bool) -> [Char] -> [[Char]]
-splitBy' _ "" = [""]
-splitBy' predicate s =
-  cons
-    ( case break predicate s of
-        (l, s') ->
-          ( l <> case s' of
-              [] -> ""
-              x : _ -> [x],
-            case s' of
-              [] -> []
-              _ : s'' -> splitBy' predicate s''
-          )
-    )
-  where
-    cons ~(h, t) = h : t
+-- splitBy' :: (a -> Bool) -> [a] -> [(Natural, Natural)]
+-- splitBy' predicate s = go s 0
+--   where
+--     cons ~(h, t) = h : t
 
-lines' :: [Char] -> [[Char]]
-lines' = splitBy' (=='\n')
+--     go s' pos = cons
+--       ( case break predicate s' of
+--           (l, s'') ->
+--             ( pos,
+--             --  + case s' of
+--             --     [] -> ""
+--             --     x : _ -> [x],
+--               case s' of
+--                 [] -> []
+--                 _ : s'' -> go 
+--             )
+--       )
 
-words' :: [Char] -> [[Char]]
-words' = splitBy' (`elem` " \n\t")
+-- lines' :: [Char] -> [[Char]]
+-- lines' = splitBy' (=='\n')
+
+-- words' :: [Char] -> [[Char]]
+-- words' = splitBy' (`elem` " \n\t")
 
 
 slice :: (Natural, Natural) -> [a] -> [a]
@@ -59,20 +62,43 @@ lst ?+! n = if n < genericLength lst then Just (lst !+! n) else Nothing
 (?-) :: (Integral a1, Integral a2, Integral a3) => a1 -> a2 -> a3
 a ?- b = fromIntegral $ max 0 (fromIntegral a - fromIntegral b :: Int)
 
-nthThing :: Integral idx => ([a] -> [[a]]) -> [a] -> idx -> (idx, idx)
-nthThing splitter buf n =
-  let
-    thingsBefore = genericTake n $ splitter buf
-    pos = genericLength $ concat thingsBefore
-    split = splitter buf
-    len = if n < genericLength split then genericLength (split !+! n) else 0
-  in (pos, len)
+splitBy' :: (a -> Bool) -> [a] -> [(Natural, Natural)]
+-- splitBy' predicate str = go predicate str 0
+--   where
+--     go _ [] _ = []
+--     go p s pos = let (l, s') = break predicate s; l' = genericLength l in (pos, l') : go p (case s' of [s''] | predicate s'' -> s'; _:rest -> rest; [] -> []) (pos + l' + 1)
+splitBy' predicate str = go str 0 0
+  where
+    go [] pos len = [(pos - len, len)]
+    go (x:xs) pos len
+      | predicate x = (pos - len, len) : go xs (pos + 1) 0
+      | otherwise = go xs (pos + 1) (len + 1)
+
+wordSep :: Char -> Bool
+wordSep = (`elem` " \n\t")
+lineSep :: Char -> Bool
+lineSep = (== '\n')
+
+splitWords :: [Char] -> [(Natural, Natural)]
+splitWords = splitBy' wordSep
+splitLines :: [Char] -> [(Natural, Natural)]
+splitLines = splitBy' lineSep
+
+nthThing :: (a -> Bool) -> [a] -> Natural -> (Natural, Natural)
+nthThing predicate buf n = fromMaybe
+  (uncurry (+) (last s), 0)
+  (s ?+! n)
+  where s = splitBy' predicate buf
+
+nthWord :: [Char] -> Natural -> (Natural, Natural)
+nthWord = nthThing wordSep
+nthLine :: [Char] -> Natural -> (Natural, Natural)
+nthLine = nthThing lineSep
 
 natRange :: Natural -> Natural -> [Natural]
 natRange f t = fromIntegral <$> [fromIntegral f .. (fromIntegral t - 1 :: Int)]
 
-rangeWith :: (Foldable t1, Num b) => t2 -> (t2 -> t1 [a]) -> [(b, b)]
-rangeWith s f = reverse $ foldl (\lst word -> case lst of ((pos, len) : _) -> (pos + len, genericLength word) : lst; [] -> [(0, genericLength word)]) [] (f s)
+-- rangeWith s f = reverse $ foldl (\lst word -> case lst of ((pos, len) : _) -> (pos + len, genericLength word) : lst; [] -> [(0, genericLength word)]) [] (f s)
 
 covers :: (Ord a, Num a) => (a, a) -> (a, a) -> Bool
 covers (p, l) (p', l') = p >= p' && p + l <= p' + l'

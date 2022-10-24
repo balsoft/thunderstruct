@@ -49,16 +49,16 @@ instance Default App where
 $(makeLenses ''App)
 
 nextSibling :: App -> App
-nextSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents (modifyAt 0 (>+ 1) c) (metaCursor c)) $ app
+nextSibling app@App {..} = cursors . ix 0 %~ (\cur -> case cur of (CN {..}):cs | idx + 1 < genericLength (childrenOfType _contents cs cursorType) -> modifyAt 0 (>+ 1) cur; _ -> cur) $ app
 
 prevSibling :: App -> App
-prevSibling app@App {..} = cursors . ix 0 %~ (\c -> findCursor _contents (modifyAt 0 (>- 1) c) (metaCursor c)) $ app
+prevSibling app@App {..} = cursors . ix 0 %~  modifyAt 0 (>- 1) $ app
 
 firstSibling :: App -> App
 firstSibling = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = 0 })
 
 lastSibling :: App -> App
-lastSibling app@App {..} = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = genericLength (childrenOfType _contents (tail $ NE.head _cursors) (cursorType $ head $ NE.head _cursors)) - 2 }) $ app
+lastSibling app@App {..} = cursors . ix 0 %~ modifyAt 0 (\x -> x { idx = genericLength (childrenOfType _contents (tail $ NE.head _cursors) (cursorType $ head $ NE.head _cursors)) ?- 2 }) $ app
 
 nextCousin :: App -> App
 nextCousin = cursors . ix 0 %~ modifyAt 1 (>+ 1)
@@ -95,8 +95,8 @@ deleteUnderCursor :: App -> App
 deleteUnderCursor app@App {..} = contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ app
 
 deleteCharacter :: App -> App
-deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents' c - 1)] c) $ contents .~ contents' $ app
-  where contents' = deleteAt (getCharacterPos _contents (NE.head _cursors) - 1) _contents
+deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents' c ?- (1 :: Int))] c) $ contents .~ contents' $ app
+  where contents' = deleteAt (getCharacterPos _contents (NE.head _cursors) ?- (1 :: Int) :: Int) _contents
 
 yank :: App -> IO App
 yank app@App {..} = callProcess "wl-copy" [slice (getCursorRange _contents (NE.head _cursors)) _contents] `catch` (\(_ :: IOError) -> return ()) >> pure app
