@@ -1,5 +1,7 @@
 # Thunderstruct
 
+WIP :warning:
+
 This is a structured code editor based around "cursor trees".
 The structure units it supports happen to include characters, words and lines, but it also supports arbitrary AST nodes (so far only for s-expressions).
 
