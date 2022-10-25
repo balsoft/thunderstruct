@@ -1,7 +1,7 @@
 module Util where
 
 import Numeric.Natural
-import Data.List (genericTake, genericLength, genericDrop)
+import Data.List (genericTake, genericLength, genericDrop, isPrefixOf)
 import Data.Maybe (fromMaybe)
 
 remove :: Eq a => a -> [a] -> [a]
@@ -67,6 +67,7 @@ splitBy' :: (a -> Bool) -> [a] -> [(Natural, Natural)]
 --   where
 --     go _ [] _ = []
 --     go p s pos = let (l, s') = break predicate s; l' = genericLength l in (pos, l') : go p (case s' of [s''] | predicate s'' -> s'; _:rest -> rest; [] -> []) (pos + l' + 1)
+splitBy' _ [] = []
 splitBy' predicate str = go str 0 0
   where
     go [] pos len = [(pos - len, len)]
@@ -74,28 +75,48 @@ splitBy' predicate str = go str 0 0
       | predicate x = (pos - len, len) : go xs (pos + 1) 0
       | otherwise = go xs (pos + 1) (len + 1)
 
-wordSep :: Char -> Bool
-wordSep = (`elem` " \n\t")
-lineSep :: Char -> Bool
-lineSep = (== '\n')
+splitBy'' :: ([a] -> Natural) -> [a] -> [(Natural, Natural)]
+splitBy'' _ [] = []
+splitBy'' predicate str = go str 0 0
+  where
+    go [] pos len = [(pos - len, len)]
+    go xs pos len = case predicate xs of
+      0 -> go (drop 1 xs) (pos + 1) (len + 1)
+      len' -> (pos - len, len) : go (genericDrop len' xs) (pos + len') 0
+
+if' :: Bool -> Natural
+if' True = 1
+if' False = 0
+
+wordSep :: String -> Natural
+wordSep = if' . (`elem` " \n\t") . head
+lineSep :: String -> Natural
+lineSep = if' . (== '\n') . head
+paraSep :: String -> Natural
+paraSep = (* 2) . if' . isPrefixOf "\n\n"
+sentSep = if' . (== '.') . head
 
 splitWords :: [Char] -> [(Natural, Natural)]
-splitWords = splitBy' wordSep
+splitWords = splitBy'' wordSep
 splitLines :: [Char] -> [(Natural, Natural)]
-splitLines = splitBy' lineSep
+splitLines = splitBy'' lineSep
+splitParas = splitBy'' paraSep
+splitSentences = splitBy'' sentSep
 
-nthThing :: (a -> Bool) -> [a] -> Natural -> (Natural, Natural)
+nthThing :: ([a] -> Natural) -> [a] -> Natural -> (Natural, Natural)
 nthThing predicate buf n = case s ?+! n of
   Just s' -> s'
   Nothing -> case s of
     _:_ -> (uncurry (+) (last s), 0)
     _ -> (0, 0)
-  where s = splitBy' predicate buf
+  where s = splitBy'' predicate buf
 
 nthWord :: [Char] -> Natural -> (Natural, Natural)
 nthWord = nthThing wordSep
 nthLine :: [Char] -> Natural -> (Natural, Natural)
 nthLine = nthThing lineSep
+nthPara = nthThing paraSep
+nthSentence = nthThing sentSep
 
 natRange :: Natural -> Natural -> [Natural]
 natRange f t = fromIntegral <$> [fromIntegral f .. (fromIntegral t - 1 :: Int)]

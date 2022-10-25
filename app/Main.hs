@@ -22,10 +22,14 @@ import System.Directory.Internal.Prelude (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO
 import Util
+import Data.Colour
+import Data.Colour.SRGB (sRGB, sRGB24show)
+import Data.Colour.Names (white, green, orange)
 
 setup :: IO ()
 setup = do
   clearScreen
+  putStr "\ESC[6 q" -- Set cursor to non-bliking I-beam, for 0-length cursors
   hideCursor
   hSetEcho stdin False
   hSetBuffering stdin NoBuffering
@@ -34,6 +38,7 @@ setup = do
 cleanup :: IO ()
 cleanup = do
   setup
+  putStr "\ESC[0 q" -- Reset cursor
   setSGR [SetDefaultColor Background]
   clearScreen
   showCursor
@@ -42,7 +47,7 @@ data AlignPriority = AlignLeft | AlignRight
 
 align :: Natural -> AlignPriority -> a -> [a] -> [a] -> [a]
 align size prio filler left right = case prio of
-  AlignLeft -> genericTake size left ++ replicate (size ?- l) filler ++ drop (length left ?- size) right
+  AlignLeft -> genericTake size left ++ replicate (size ?- l) filler ++ drop (l ?- size) right
   AlignRight -> take (size ?- length right) left ++ replicate (size ?- l) filler ++ genericTake size right
   where
     l = length left + length right
@@ -79,7 +84,7 @@ relativeCursorPosition buf (vy, vx) cursor =
   let ((y, x), (y_, x_)) = getCursorAbsolute buf cursor
    in ((y ?- vy, x ?- vx), (y_ ?- vy, x_ ?- vx))
 
-data RegionBoundary = Start (Word8, Word8) (Natural, Natural) | End (Word8, Word8) (Natural, Natural) deriving (Eq)
+data RegionBoundary = Start (Colour Float, Colour Float) (Natural, Natural) | End (Colour Float, Colour Float) (Natural, Natural) deriving (Eq)
 
 instance Ord RegionBoundary where
   Start _ pos < End _ pos' = pos < pos'
@@ -91,10 +96,10 @@ instance Ord RegionBoundary where
   Start _ pos <= Start _ pos' = pos <= pos'
   End _ pos <= End _ pos' = pos <= pos'
 
-getRegionBoundaries :: [((Word8, Word8), ((Natural, Natural), (Natural, Natural)))] -> [RegionBoundary]
+getRegionBoundaries :: [((Colour Float, Colour Float), ((Natural, Natural), (Natural, Natural)))] -> [RegionBoundary]
 getRegionBoundaries regions = sort $ concatMap (\(c, (s, e)) -> [Start c s, End c e]) regions
 
-colorRegions :: [((Word8, Word8), ((Natural, Natural), (Natural, Natural)))] -> [String] -> String
+colorRegions :: [((Colour Float, Colour Float), ((Natural, Natural), (Natural, Natural)))] -> [String] -> String
 colorRegions regions = go boundaries [] 0 0
   where
     boundaries = getRegionBoundaries regions
@@ -106,9 +111,9 @@ colorRegions regions = go boundaries [] 0 0
       | otherwise = ch ++ go bs layers y' x' ls'
       where
         codes = case b of
-          Start _ _ -> [SetPaletteColor Background bg, SetPaletteColor Foreground fg]
+          Start _ _ -> [SetRGBColor Background bg, SetRGBColor Foreground fg]
           End _ _ -> case layers of
-            (colors : (fg', bg') : _) | colors == c -> [SetPaletteColor Background bg', SetPaletteColor Foreground fg']
+            (colors : (fg', bg') : _) | colors == c -> [SetRGBColor Background bg', SetRGBColor Foreground fg']
             [_] -> [SetDefaultColor Foreground, SetDefaultColor Background]
             _ -> []
         (c@(fg, bg), pos) = case b of
@@ -121,8 +126,12 @@ colorRegions regions = go boundaries [] 0 0
           (ch' : s') -> ([ch'], s' : ls, y, x + 1)
           "" -> ("\n", ls, y + 1, 0)
 
-cursorColor :: App -> Int -> (Word8, Word8)
-cursorColor App {..} n = (case n of 0 -> 0; _ -> 255, case n of 0 -> (case _mode of Insert -> 011; _ -> 255; ); 1 -> 236; 2 -> 233; _ -> 0)
+colourForMode :: Mode -> Colour Float
+colourForMode Insert = orange
+colourForMode _ = white
+
+cursorColor :: App -> Int -> (Colour Float, Colour Float)
+cursorColor App {..} n = (case n of 0 -> black; _ -> white, case n of 0 -> colourForMode _mode; 1 -> sRGB 0.15 0.15 0.15; 2 -> sRGB 0.05 0.05 0.05; _ -> black)
 
 render :: App -> IO ()
 render app@App {..} = do
@@ -138,12 +147,13 @@ render app@App {..} = do
       let ((y, x), (y', x')) = relativeCursorPosition _contents (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
-      let !screen = align (fromIntegral h + 1) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
+      let !screen = align (fromIntegral h) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
       setSGR [SetDefaultColor Background]
       setCursorPosition 0 0
       mapM_ putStr screen
       if y == y' && x == x'
         then do
+          putStr $ "\ESC]12;" ++ sRGB24show (colourForMode _mode)
           setCursorPosition (fromIntegral y) (fromIntegral x)
           showCursor
         else do
@@ -183,30 +193,40 @@ execute app c = return $ message ?~ "Unknown command: " <> c $ app
 handleSequence :: App -> String -> IO App
 handleSequence app@(App {..}) c
   | c == "\ESC" = return $ mode .~ Normal $ app
-  | c == "\ESC[D" = return $ prevSibling app -- ←
-  | c == "\ESC[B" = return $ nextCousin app -- ↓
-  | c == "\ESC[A" = return $ prevCousin app -- ↑
-  | c == "\ESC[C" = return $ nextSibling app -- →
-  | c == "\ESC[H" = return $ firstSibling app -- Home
-  | c == "\ESC[F" = return $ lastSibling app -- End
+  | c == "\ESC[D" = return $ toPrevSibling app -- ←
+  | c == "\ESC[B" = return $ toNextCousin app -- ↓
+  | c == "\ESC[A" = return $ toPrevCousin app -- ↑
+  | c == "\ESC[C" = return $ toNextSibling app -- →
+  | c == "\ESC[H" = return $ toFirstSibling app -- Home
+  | c == "\ESC[F" = return $ toLastSibling app -- End
   | c == "\ESC:" = return $ toBestASTNode app
+  | c == "\ESCh" = return $ toPrevTypeSibling app
+  | c == "\ESCH" = return $ toFirstTypeSibling app
+  | c == "\ESCj" = return $ toChild app
+  | c == "\ESCk" = return $ toParent app
+  | c == "\ESCl" = return $ toNextTypeSibling app
+  | c == "\ESCL" = return $ toLastTypeSibling app
+  | c == "\ESCu" = return $ undoCursor app
+  | c == "\ESCU" = return $ redoCursor app
   -- \| c == '\DEL' = return $ deleteUnderCursor app
   | _mode == Normal = case c of
-      "\ESCh" -> return $ prevTypeSibling app
-      "\ESCH" -> return $ firstTypeSibling app
-      "\ESCj" -> return $ child app
-      "\ESCk" -> return $ parent app
-      "\ESCl" -> return $ nextTypeSibling app
-      "\ESCL" -> return $ lastTypeSibling app
-      "h" -> return $ prevSibling app
-      "j" -> return $ nextCousin app
-      "k" -> return $ prevCousin app
-      "l" -> return $ nextSibling app
-      "i" -> return $ insertMode $ saveHistory app
-      "c" -> return $ insertMode $ deleteUnderCursor $ saveHistory app
-      "d" -> return $ deleteUnderCursor $ saveHistory app
-      "y" -> yank app
-      "p" -> paste app
+      "h" -> return $ toPrevSibling app
+      "j" -> return $ toNextCousin app
+      "k" -> return $ toPrevCousin app
+      "l" -> return $ toNextSibling app
+      "i" -> return $ toInsertMode app
+      "I" -> return $ toLastSibling $ toInsertMode app
+      "c" -> return $ toInsertMode $ deleteUnderCursor app
+      "C" -> return $ toInsertMode $ deleteToNextSibling app
+      "\ESCc" -> return $ toInsertMode $ deleteParent app
+      "d" -> return $ deleteUnderCursor app
+      "\ESCd" -> return $ deleteParent app
+      "D" -> return $ deleteToNextSibling app
+      -- "\ESCD" -> return $ deleteParentToNextSibling app
+      "y" -> return $ yank app
+      "Y" -> return $ dropClipboard app
+      "p" -> return $ paste app
+      "P" -> return $ pop app
       "u" -> return $ undo app
       "U" -> return $ redo app
       ":" -> return $ mode .~ Command "" $ app

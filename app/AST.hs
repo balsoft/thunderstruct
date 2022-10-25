@@ -61,7 +61,7 @@ traverseAST :: [Natural] -> Node -> Either Node Node
 traverseAST (i : is) node'@(Parens children _ _) = case children ?+! i of
   Just node'' -> traverseAST is node''
   Nothing -> Left node'
-traverseAST (_ : _) node' = Right node'
+traverseAST (_ : _) node' = Left node'
 traverseAST [] n = Right n
 
 fromToToPosLen :: String -> SourcePos -> Natural

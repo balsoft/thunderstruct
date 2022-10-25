@@ -78,6 +78,7 @@ executable thunderstruct
                       ilist,
                       parsec,
                       process,
+                      colour,
 
     -- Directories containing source files.
     hs-source-dirs:   app
