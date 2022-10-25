@@ -140,7 +140,6 @@ coerceCursor s c c' = findCursor s c (metaCursor c')
 cursorRanger :: String -> (String -> Natural -> (Natural, Natural)) -> Natural -> Cursor -> (Natural, Natural)
 cursorRanger buf splitter i xs = let (pos, len) = getCursorRange buf xs in _1 +~ pos $ splitter (slice (pos, len) buf) i
 
-
 getCursorRange :: String -> Cursor -> (Natural, Natural)
 getCursorRange buf [] = (0, genericLength buf)
 getCursorRange buf ((CN Char c) : xs) = let (pos, len) = getCursorRange buf xs in (pos + min len c, min 1 $ len ?- c)
@@ -150,7 +149,7 @@ getCursorRange buf ((CN Line l) : xs) = cursorRanger buf nthLine l xs
 getCursorRange buf ((CN Paragraph p) : xs) = cursorRanger buf nthPara p xs
 getCursorRange buf cur@((CN ASTNode _) : xs) = let (pos_, len_) = getCursorRange buf (dropWhile ((ASTNode ==) . cursorType) cur) in
   case parseParensE (slice (pos_, len_) buf) of
-      Right result -> _1 +~ pos_ $ fromToToPosLens buf $ case traverseAST (reverse $ map idx xs) result of
+      Right result -> _1 +~ pos_ $ fromToToPosLens buf $ case traverseAST (reverse $ map idx (takeWhile ((ASTNode == ) . cursorType) cur)) result of
         Right (Token _ pos pos') -> (pos, pos')
         Right (Parens _ pos pos') -> (pos, pos')
         Left (Token _ _ pos') -> (pos', pos')

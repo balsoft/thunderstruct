@@ -103,26 +103,26 @@ fixMode app@App { _mode = Insert } = mode .~ Normal $ app -- Insert mode is only
 fixMode app = app
 
 insertAfter :: Prelude.Char -> App -> App
-insertAfter c app@App {..} = contents %~ insertAt (getCharacterPos _contents (NE.head _cursors)) c $ fixCursor app
+insertAfter c app@App {..} = contents %~ insertAt (getCharacterPos _contents (NE.head _cursors)) c $ app
 
 charCursor :: App -> App
 charCursor = cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; old :| rest -> (CN Char 0 : old) :| rest)
 
 insert :: Prelude.Char -> App -> App
-insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents' c + 1)] c) $ contents .~ contents' $ app
+insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c + 1)] c) $ contents .~ contents' $ app
   where contents' = insertAt (getCharacterPos _contents (NE.head _cursors)) char _contents
 
 deleteUnderCursor :: App -> App
-deleteUnderCursor app@App {..} = contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ saveHistory app
+deleteUnderCursor app@App {..} = fixCursor $ contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ saveHistory app
 
 deleteToNextSibling :: App -> App
-deleteToNextSibling app@App {..} = contents %~ deleteMany (pos, pos' - pos) $ saveHistory app
+deleteToNextSibling app@App {..} = fixCursor $ contents %~ deleteMany (pos, pos' - pos) $ saveHistory app
   where
     (pos, _) = getCursorRange _contents (NE.head _cursors)
     (pos', _) = getCursorRange _contents $ modifyAt 0 (>+ 1) (NE.head _cursors)
 
 deleteParent :: App -> App
-deleteParent app@App {..} = contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors)) $ saveHistory app
+deleteParent app@App {..} = fixCursor $ contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors)) $ saveHistory app
 
 deleteCharacter :: App -> App
 deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c ?- (1 :: Int))] c) $ contents .~ contents' $ app
