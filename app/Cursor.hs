@@ -129,7 +129,7 @@ findCursor s c mc = case cursors of
     before = filter (\(_, r') -> r' < r) ranges
     after = filter (\(_, r') -> r' > r) ranges
 
-    cursors = covered ++ (if cmp == LT then after ++ before else before ++ after) ++ cover
+    cursors = covered ++ cover ++ (if cmp == LT then after ++ before else before ++ after)
 
 
 

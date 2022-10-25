@@ -110,20 +110,27 @@ insertAfter :: Prelude.Char -> App -> App
 insertAfter c app@App {..} = contents %~ insertAt (getCharacterPos _contents (NE.head _cursors)) c $ app
 
 charCursor :: App -> App
-charCursor = cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; old :| rest -> (CN Char 0 : old) :| rest)
+charCursor app@App {..} = (cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; (other:rest) :| rest' -> coerceCursor _contents (other:rest) (CN Char 0 : rest) :| rest'; _ -> c)) $ saveCursorHistory app
 
 insert :: Prelude.Char -> App -> App
 insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c + 1)] c) $ contents .~ contents' $ app
   where contents' = insertAt (getCharacterPos _contents (NE.head _cursors)) char _contents
 
-deleteUnderCursor :: App -> App
-deleteUnderCursor app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRange _contents (NE.head _cursors))) $ saveHistory app
 
-deleteToNextSibling :: App -> App
-deleteToNextSibling app@App {..} = fixCursorAfter (contents %~ deleteMany (pos, pos' - pos)) $ saveHistory app
+deleteUnderCursor' :: App -> App
+deleteUnderCursor' app@App {..} = contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ app
+
+deleteUnderCursor :: App -> App
+deleteUnderCursor = fixCursorAfter deleteUnderCursor' . saveHistory
+
+deleteToNextSibling' :: App -> App
+deleteToNextSibling' app@App {..} = contents %~ deleteMany (pos, pos' - pos) $ app
   where
     (pos, _) = getCursorRange _contents (NE.head _cursors)
     (pos', _) = getCursorRange _contents $ nextSibling _contents (NE.head _cursors)
+
+deleteToNextSibling :: App -> App
+deleteToNextSibling = fixCursorAfter deleteToNextSibling' . saveHistory
 
 deleteParent :: App -> App
 deleteParent app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors))) $ saveHistory app
@@ -131,6 +138,12 @@ deleteParent app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRan
 deleteCharacter :: App -> App
 deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c ?- (1 :: Int))] c) $ contents .~ contents' $ app
   where contents' = deleteAt (getCharacterPos _contents (NE.head _cursors) ?- (1 :: Int) :: Int) _contents
+
+replaceUnderCursor :: App -> App
+replaceUnderCursor app@App {..} = contents .~ (deleteUnderCursor' app ^. contents) $ toInsertMode app
+
+replaceToNextSibling :: App -> App
+replaceToNextSibling app@App {..} = contents .~ (deleteToNextSibling' app ^. contents) $ toInsertMode app
 
 -- yank :: App -> IO App
 -- yank app@App {..} = callProcess "wl-copy" [slice (getCursorRange _contents (NE.head _cursors)) _contents] `catch` (\(_ :: IOError) -> return ()) >> pure app
