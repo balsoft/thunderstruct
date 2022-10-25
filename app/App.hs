@@ -48,9 +48,6 @@ instance Default App where
 
 $(makeLenses ''App)
 
--- fixCursor :: App -> ApV
--- fixCursor app@App {..} = cursors . ix 0 %~ (\cur -> case cur of (CN {..}):cs | idx > genericLength (childrenOfType _contents cs cursorType) -> CN (genericLength (childrenOfType _contents cs cursorType)) cursorType : cs; _ -> cur)
-
 nextSibling :: App -> App
 nextSibling app@App {..} = fixCursor $ cursors . ix 0 %~ modifyAt 0 (>+ 1) $ app
 

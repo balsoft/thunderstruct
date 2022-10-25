@@ -121,6 +121,9 @@ colorRegions regions = go boundaries [] 0 0
           (ch' : s') -> ([ch'], s' : ls, y, x + 1)
           "" -> ("\n", ls, y + 1, 0)
 
+cursorColor :: App -> Int -> (Word8, Word8)
+cursorColor App {..} n = (case n of 0 -> 0; _ -> 255, case n of 0 -> (case _mode of Insert -> 011; _ -> 255; ); 1 -> 236; 2 -> 233; _ -> 0)
+
 render :: App -> IO ()
 render app@App {..} = do
   hideCursor
@@ -131,7 +134,7 @@ render app@App {..} = do
       let (vy, vx) = optimalViewport (fromIntegral h, fromIntegral w) app
       let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines (app ^. contents))
       let activeCursor = NE.head _cursors
-      let cursorParents = reverse $ take 3 [((case n of 0 -> 0; _ -> 255, case n of 0 -> 255; 1 -> 236; 2 -> 233; _ -> 0), relativeCursorPosition _contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
+      let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition _contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
       let ((y, x), (y', x')) = relativeCursorPosition _contents (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
@@ -199,7 +202,8 @@ handleSequence app@(App {..}) c
       "j" -> return $ nextCousin app
       "k" -> return $ prevCousin app
       "l" -> return $ nextSibling app
-      "i" -> return $ saveHistory $ insertMode app
+      "i" -> return $ insertMode $ saveHistory app
+      "c" -> return $ insertMode $ deleteUnderCursor $ saveHistory app
       "d" -> return $ deleteUnderCursor $ saveHistory app
       "y" -> yank app
       "p" -> paste app
