@@ -18,6 +18,7 @@ import System.Process (callProcess, readProcess)
 import Util
 import Prelude hiding (Char, Word)
 import qualified Prelude
+import Debug.Trace (traceShowId)
 
 data Mode = Normal | Command String | Insert | Replace | Select Cursors Cursors deriving (Show, Eq)
 
@@ -97,6 +98,9 @@ toInsertMode =  charCursor . (mode .~ Insert) . saveHistory
 fixCursor :: App -> App
 fixCursor app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor _contents c c) $ app
 
+fixCursorAfter :: (App -> App) -> App -> App
+fixCursorAfter trans app@App {..} = let app' = trans app in cursors . ix 0 %~ (\c -> coerceCursor (app' ^. contents) [CN Char (getCharacterPos (app ^. contents) c)] c) $ app'
+
 fixMode :: App -> App
 fixMode app@App { _cursors = ((CN Char _):_):|_, _mode = Insert } = app
 fixMode app@App { _mode = Insert } = mode .~ Normal $ app -- Insert mode is only available with a char cursor
@@ -113,16 +117,16 @@ insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN C
   where contents' = insertAt (getCharacterPos _contents (NE.head _cursors)) char _contents
 
 deleteUnderCursor :: App -> App
-deleteUnderCursor app@App {..} = fixCursor $ contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ saveHistory app
+deleteUnderCursor app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRange _contents (NE.head _cursors))) $ saveHistory app
 
 deleteToNextSibling :: App -> App
-deleteToNextSibling app@App {..} = fixCursor $ contents %~ deleteMany (pos, pos' - pos) $ saveHistory app
+deleteToNextSibling app@App {..} = fixCursorAfter (contents %~ deleteMany (pos, pos' - pos)) $ saveHistory app
   where
     (pos, _) = getCursorRange _contents (NE.head _cursors)
-    (pos', _) = getCursorRange _contents $ modifyAt 0 (>+ 1) (NE.head _cursors)
+    (pos', _) = getCursorRange _contents $ nextSibling _contents (NE.head _cursors)
 
 deleteParent :: App -> App
-deleteParent app@App {..} = fixCursor $ contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors)) $ saveHistory app
+deleteParent app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors))) $ saveHistory app
 
 deleteCharacter :: App -> App
 deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c ?- (1 :: Int))] c) $ contents .~ contents' $ app

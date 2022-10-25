@@ -67,7 +67,7 @@ ranger ::
   -> MetaCursor
   -> (String -> [(Natural, Natural)])
   -> [([CursorNode], (Natural, Natural))]
-ranger s t rest splitter = concat [[(CN t i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitter (slice (pos, len) s) ++ [(len, 0)])] | (cur, (pos, len)) <- reachableRanges s rest]
+ranger s t rest splitter = concat [[(CN t i : cur, (pos' + pos, len')) | (i, (pos', len')) <- zip [0 ..] (splitter (slice (pos, len) s) ++ [(len, 0) | len /= 0])] | (cur, (pos, len)) <- reachableRanges s rest]
 
 
 reachableRanges :: String -> MetaCursor -> [(Cursor, (Natural, Natural))]
@@ -115,10 +115,9 @@ compareCursors _ [] = GT
 
 findCursor :: String -> Cursor -> MetaCursor -> Cursor
 findCursor _ _ [] = []
-findCursor s c mc = case (ideal, case cmp of LT -> after; _ -> before) of
-  (cur : _, _) -> fst cur
-  ([], []) -> []
-  ([], curs) -> fst $ last curs
+findCursor s c mc = case cursors of
+  x:_ -> fst x
+  _ -> []
   where
     cmp = metaCursor c `compareCursors` mc
     ranges = reachableRanges s mc
@@ -126,10 +125,13 @@ findCursor s c mc = case (ideal, case cmp of LT -> after; _ -> before) of
 
     covered = filter (\(_, r') -> r `covers` r') ranges
     cover = filter (\(_, r') -> r' `covers` r) ranges
-    ideal = covered ++ cover
 
     before = filter (\(_, r') -> r' < r) ranges
     after = filter (\(_, r') -> r' > r) ranges
+
+    cursors = covered ++ (if cmp == LT then after ++ before else before ++ after) ++ cover
+
+
 
 metaCursor :: Cursor -> MetaCursor
 metaCursor = map cursorType
@@ -147,7 +149,7 @@ getCursorRange buf ((CN Word w) : xs) = cursorRanger buf nthWord w xs
 getCursorRange buf ((CN Sentence s) : xs) = cursorRanger buf nthSentence s xs
 getCursorRange buf ((CN Line l) : xs) = cursorRanger buf nthLine l xs
 getCursorRange buf ((CN Paragraph p) : xs) = cursorRanger buf nthPara p xs
-getCursorRange buf cur@((CN ASTNode _) : xs) = let (pos_, len_) = getCursorRange buf (dropWhile ((ASTNode ==) . cursorType) cur) in
+getCursorRange buf cur@((CN ASTNode _) : _) = let (pos_, len_) = getCursorRange buf (dropWhile ((ASTNode ==) . cursorType) cur) in
   case parseParensE (slice (pos_, len_) buf) of
       Right result -> _1 +~ pos_ $ fromToToPosLens buf $ case traverseAST (reverse $ map idx (takeWhile ((ASTNode == ) . cursorType) cur)) result of
         Right (Token _ pos pos') -> (pos, pos')
@@ -264,25 +266,27 @@ bestASTNode s c = case concatMap (go []) allNodes of [] -> []; c:_ -> c
 
 nextSibling :: String -> Cursor -> Cursor
 nextSibling s (CN t i:rest) | i + 1 < genericLength (childrenOfType s rest t) = CN t (i + 1):rest
-nextSibling s c = firstSibling s $ nextCousin s c
+nextSibling s (c:rest) = firstSibling s $ c : nextSibling s rest
+nextSibling _ [] = []
 
 firstSibling :: String -> Cursor -> Cursor
 firstSibling _ = modifyAt 0 (\c -> c { idx = 0 })
 
 nextCousin :: String -> Cursor -> Cursor
-nextCousin s (c:CN t i:rest) | i < genericLength (childrenOfType s rest t) = c:CN t (i + 1):rest
+nextCousin s (c:rest) = c : nextSibling s rest
 nextCousin _ c = c
 
 prevSibling :: String -> Cursor -> Cursor
-prevSibling s (CN t i:rest) | i > 0 = CN t (i - 1):rest
-prevSibling s c = lastSibling s $ prevCousin s c
+prevSibling _ (CN t i:rest) | i > 0 = CN t (i - 1):rest
+prevSibling s (c:rest) = lastSibling s $ c : prevSibling s rest
+prevSibling _ [] = []
 
 lastSibling :: String -> Cursor -> Cursor
-lastSibling s (CN t i:rest) = CN t (genericLength (childrenOfType s rest t)):rest
+lastSibling s (CN t i:rest) = CN t (genericLength (childrenOfType s rest t) - 1):rest
 lastSibling _ [] = []
 
 prevCousin :: String -> Cursor -> Cursor
-prevCousin _ (c:CN t i:rest) | i > 0 = c:CN t (i - 1):rest
+prevCousin s (c:rest) = c : prevSibling s rest
 prevCousin _ c = c
 
 type Cursor = [CursorNode]
