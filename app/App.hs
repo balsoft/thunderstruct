@@ -89,7 +89,10 @@ toBestASTNode :: App -> App
 toBestASTNode app@App {..} = fixMode $ _cursors . ix 0 %~ bestASTNode contents $ saveCursorHistory app
 
 toInsertMode :: App -> App
-toInsertMode =  charCursor . (_mode .~ Insert) . saveHistory
+toInsertMode = charCursor . (_mode .~ Insert) . saveHistory
+
+toInsertModeAfter :: App -> App
+toInsertModeAfter app@App {..} = (_cursors . ix 0 %~ (ix 0 %~ (_idx .~ uncurry (+) (getCursorRange contents (NE.head cursors))))) . charCursor . (_mode .~ Insert) . saveHistory . saveCursorHistory $ app
 
 fixCursor :: App -> App
 fixCursor app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents c c) $ app

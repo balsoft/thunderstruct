@@ -214,7 +214,7 @@ handleSequence app@(App {..}) c
       "k" -> toPrevCousin app
       "l" -> toNextSibling app
       "i" -> toInsertMode app
-      "I" -> toLastSibling $ toInsertMode app
+      "I" -> toInsertModeAfter app
       "c" -> replaceUnderCursor app
       "C" -> replaceToNextSibling app
       "\ESCc" -> toInsertMode $ deleteParent app

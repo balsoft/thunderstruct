@@ -91,13 +91,13 @@ As an excercise, try reaching `[Line,Word,Char]` and `[Paragraph, Word]` yoursel
 If you are in a file which does parse as AST (only s-expressions for now), pressing Alt+j will give you [ASTNode 0]. It will select the first parenthesis in the file.
 Pressing Alt+j once more will give you [ASTNode 0, ASTNode 0] (if the first parenthesis have at least one element). Get a feel for jumping through the structure.
 
-As an excercise, try reaching `[ASTNode 0, ASTNode 1, Char 3]` in this file:
+As an excercise, try reaching `[ASTNode 0, ASTNode 3, ASTNode 0, Char 3]` in this file:
 
 ```
 (defun factorial (n)
-    (loop for i from 1 to n
-        for fac = 1 then (* fac i)
-        finally (return fac)))
+  (if (= n 0)
+      1
+      (* n (factorial (- n 1))) ) )
 ```
 
 You can undo and redo changes to the cursor. Once again, depress `Alt` and press `u` to undo your cursor change or `Shift+u` (`U`) to redo the change you just undid.

@@ -2,7 +2,6 @@ module Util where
 
 import Numeric.Natural
 import Data.List (genericTake, genericLength, genericDrop, isPrefixOf)
-import Data.Maybe (fromMaybe)
 
 remove :: Eq a => a -> [a] -> [a]
 remove element = filter (/= element)
@@ -94,13 +93,16 @@ lineSep :: String -> Natural
 lineSep = if' . (== '\n') . head
 paraSep :: String -> Natural
 paraSep = (* 2) . if' . isPrefixOf "\n\n"
+sentSep :: [Char] -> Natural
 sentSep = if' . (== '.') . head
 
 splitWords :: [Char] -> [(Natural, Natural)]
 splitWords = splitBy'' wordSep
 splitLines :: [Char] -> [(Natural, Natural)]
 splitLines = splitBy'' lineSep
+splitParas :: [Char] -> [(Natural, Natural)]
 splitParas = splitBy'' paraSep
+splitSentences :: [Char] -> [(Natural, Natural)]
 splitSentences = splitBy'' sentSep
 
 nthThing :: ([a] -> Natural) -> [a] -> Natural -> (Natural, Natural)
@@ -115,7 +117,9 @@ nthWord :: [Char] -> Natural -> (Natural, Natural)
 nthWord = nthThing wordSep
 nthLine :: [Char] -> Natural -> (Natural, Natural)
 nthLine = nthThing lineSep
+nthPara :: [Char] -> Natural -> (Natural, Natural)
 nthPara = nthThing paraSep
+nthSentence :: [Char] -> Natural -> (Natural, Natural)
 nthSentence = nthThing sentSep
 
 natRange :: Natural -> Natural -> [Natural]
