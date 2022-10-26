@@ -52,7 +52,8 @@ Additionally, H, J, K, and L (Shift+h, Shift+j, Shift+k and Shift+l) move to the
 If your cursor points to a non-existant object, it will become a 0-length cursor right after the parent of the object.
 
 You can also change the cursor tree itself in a similar manner, jumping around the very structure of the file you're editing. This is the defining feature of thunderstruct.
-Depress the `Alt` key, and then press `h` and `l` to change the type of the first structure unit in the tree, `j` to remove the first structure unit (going to the parent of the pointee), and `k` to prepend a structure unit (the first most abstract child that the pointee has).
+Depress the `Alt` key, and then press `h` and `l` to change the type of the first structure unit in the tree, `j` to remove the first structure unit (going to the parent of the pointee),
+and `k` to prepend a structure unit (the first most abstract child that the pointee has).
 
 You can imagine this as though moving through a cursor tree, laid out something like this:
 
@@ -112,7 +113,8 @@ Pressing `y` will yank (copy) the current pointee and insert it to the top of th
 `P` will do the same but remove (pop) the top of the clipboard, leaving older entries, and `Y` will just remove the top of the clipboard.
 
 You can also press `i`/`I` to go to the first/last Char of the current pointee and enter the `Insert` mode.
-Pressing `c` will delete the pointee and go to `Insert` mode in its place, and pressing `C` (Shift+c) will delete everything between the beginning of the pointee to the beginning of the next sibling and then go to `Insert` mode, and `Alt+c` will delete the parent and then go to `Insert` mode.
+Pressing `c` will delete the pointee and go to `Insert` mode in its place, and pressing `C` (Shift+c) will delete everything between the beginning of the pointee to the beginning of the next sibling and then go to `Insert` mode,
+and `Alt+c` will delete the parent and then go to `Insert` mode.
 
 You can undo the changes done by `d`, `D`, `Alt+d`, `c`, `C`, `Alt+c`, or things you've typed in a single Insert mode session by pressing `u`. `U` will re-do the change you just undid.
 
@@ -122,19 +124,21 @@ To enter Command mode, press `:` while in Normal mode. Now, everything you type 
 
 So, for example, if you're in Normal mode and press `:` `w` `RET`, a command `"w"` will get executed.
 
-The "w" command, coincidentally, is writing. If a file is currently open (e.g. you've started thunderstruct with an argument), it will write to that file.
+The `"w"` command, coincidentally, is writing. If a file is currently open (e.g. you've started thunderstruct with an argument), it will write to that file.
 You can also pass it a file to write by appending characters to the command, e.g. `"wREADME.md"` will write to the file "README.md".
 
-The "q" command will quit the editor. If the contents of the buffer differs from the contents of the file on disk, it will tell you so. You can use "q!" command to exit anyways.
+The `"q"` command will quit the editor. If the contents of the buffer differs from the contents of the file on disk, it will tell you so. You can use `"q!"` command to exit anyways.
 
-The "e" command will open a file for editing. It can be passed an argument similarly to "w", e.g. "eREADME.md" will open README.md.
+The `"e"` command will open a file for editing. It can be passed an argument similarly to `"w"`, e.g. `"eREADME.md"` will open README.md.
 
-The "#" command will change the cursor tree types to its argument. The argument is comma-separated list of first characters of names of the structure units ('c' for Char, 'w' for Word, etc.). E.g. "#l,c" will change the cursor to be [Line, Character].
+The `"#"` command will change the cursor tree types to its argument. The argument is comma-separated list of first characters of names of the structure units ('c' for Char, 'w' for Word, etc.). E.g. "#l,c" will change the cursor to be [Line, Character].
 The command makes sure to keep the pointee either the same or as close as possible to the current one.
 
-The "@" command will either change the cursor tree types or cursor tree indicies, depending on the argument.
+The `"@"` command will either change the cursor tree types or cursor tree indicies, depending on the argument.
 
-- If the argument is same as for "#" (comma-separated list of characters), then the end of the cursor tree is updated to have these types.
-  E.g. "@w" when the cursor is `[Line, Char]` will turn the cursor into `[Line, Word]`, and "@w,c" when the cursor is `[Line, Sentence, Word]` will turn the cursor into `[Line, Word, Char]`.
+- If the argument is same as for `"#"` (comma-separated list of characters), then the end of the cursor tree is updated to have these types.
+  E.g. `"@w"` when the cursor is `[Line, Char]` will turn the cursor into `[Line, Word]`, and `"@w,c"` when the cursor is `[Line, Sentence, Word]` will turn the cursor into `[Line, Word, Char]`.
 - If the argument is a comma-separted list of non-negative integers, then the end of the cursor tree will be updated to have these indicies.
-  E.g. "@0" when the cursor is `[Line, Char]` will jump to the first character of the line, and "@5,9" will jump to the 10th character of the 6th line.
+  E.g. `"@0"` when the cursor is `[Line, Char]` will jump to the first character of the line, and `"@5,9"` will jump to the 10th character of the 6th line.
+
+You can also press `#` or `@` from the Normal mode to get into Command mode with corresponding commands already entered.

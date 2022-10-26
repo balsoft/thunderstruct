@@ -17,20 +17,18 @@ import Numeric.Natural (Natural)
 import Safe (toEnumSafe, headDef, lastDef)
 import Util
 import Prelude hiding (Char, Word)
+import qualified Prelude
 
 data CursorType = Char | Word | Sentence | Line | Paragraph | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
 
-instance Read CursorType where
-  -- readsPrec i ('c':'h':'a':'r':xs) = [(Char, xs)]
-  -- readsPrec i ('c':'h':'a':xs) = [(Char, xs)]
-  -- readsPrec i ('c':'h':xs) = [(Char, xs)]
-  readsPrec i ('c':xs) = [(Char, xs)]
-  readsPrec i ('w':xs) = [(Word, xs)]
-  readsPrec i ('s':xs) = [(Sentence, xs)]
-  readsPrec i ('l':xs) = [(Line, xs)]
-  readsPrec i ('p':xs) = [(Paragraph, xs)]
-  readsPrec i ('a':xs) = [(ASTNode, xs)]
-  readsPrec _ _ = undefined
+cursorByChar :: Prelude.Char -> Maybe CursorType
+cursorByChar 'c' = Just Char
+cursorByChar 'w' = Just Word
+cursorByChar 's' = Just Sentence
+cursorByChar 'l' = Just Line
+cursorByChar 'p' = Just Paragraph
+cursorByChar 'a' = Just ASTNode
+cursorByChar _ = Nothing
 
 
 data CursorNode = CN {cursorType :: CursorType, idx :: Natural} deriving (Eq)

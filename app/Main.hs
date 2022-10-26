@@ -190,12 +190,12 @@ execute app@App {} ('e' : fname) = do
   return $ _contents .~ contents' $ _file ?~ fname $ app
 execute app ('@':c) = case readMay ("[" ++ c ++ "]") :: Maybe [Natural] of
   Just is -> return $ _cursors . ix 0 %~ toNthIndicies (reverse is) $ app
-  Nothing -> case readMay ("[" ++ c ++ "]") :: Maybe MetaCursor of
+  Nothing -> case mapM cursorByChar c :: Maybe MetaCursor of
     Just is -> return $ updateActiveCursorType (toTypes (reverse is)) app
     Nothing -> return $ _message ?~ "Cursor update not recognized: " <> c $ app
-execute app@App {..} ('#':c) = case readMay ("[" ++ c ++ "]") :: Maybe MetaCursor of
+execute app@App {..} ('#':c) = case mapM cursorByChar c :: Maybe MetaCursor of
   Just is -> return $ updateActiveCursorType (\cur -> findCursor contents cur (reverse is)) app
-  Nothing -> return $ app
+  Nothing -> return $ _message ?~ "Cursor type set not recongnized: " <> c $ app
 execute app c = return $ _message ?~ "Unknown command: " <> c $ app
 
 handleSequence :: App -> String -> IO App
@@ -238,6 +238,8 @@ handleSequence app@(App {..}) c
       "u" -> undo app
       "U" -> redo app
       ":" -> _mode .~ Command "" $ app
+      "@" -> _mode .~ Command "@" $ app
+      "#" -> _mode .~ Command "#" $ app
       _ -> app
   | mode == Insert = return $ case c of
       "\DEL" -> deleteCharacter app
