@@ -91,7 +91,7 @@ As an excercise, try reaching `[Line,Word,Char]` and `[Paragraph, Word]` yoursel
 If you are in a file which does parse as AST (only s-expressions for now), pressing Alt+j will give you [ASTNode 0]. It will select the first parenthesis in the file.
 Pressing Alt+j once more will give you [ASTNode 0, ASTNode 0] (if the first parenthesis have at least one element). Get a feel for jumping through the structure.
 
-As an excercise, try reaching `[ASTNode 0, ASTNode 3, ASTNode 0, Char 3]` in this file:
+As an excercise, try reaching `[ASTNode 0, ASTNode 3, ASTNode 1, Char 1]` in this file:
 
 ```
 (defun factorial (n)
@@ -102,13 +102,39 @@ As an excercise, try reaching `[ASTNode 0, ASTNode 3, ASTNode 0, Char 3]` in thi
 
 You can undo and redo changes to the cursor. Once again, depress `Alt` and press `u` to undo your cursor change or `Shift+u` (`U`) to redo the change you just undid.
 
+There is also another way to navigate the cursor tree. See `#` and `@` commands in the [Commands](#commands) section.
+
 ## Editing
 
 While in `Normal` mode, you can press `d` to delete the pointee, `D` (Shift+d) to delete everything from the beginning of pointee to the beginning of the next sibling, and `Alt+d` to delete the parent of the pointee.
 
-Pressing `y` will yank (copy) the current pointee and insert it to the top of the clipboard, `p` will paste from the top of the clipboard (dropping your cursor to Char if needed), `P` will do the same but remove (pop) the top of the clipboard, leaving older entries, and `Y` will just remove the top of the clipboard.
+Pressing `y` will yank (copy) the current pointee and insert it to the top of the clipboard, `p` will paste from the top of the clipboard (dropping your cursor to Char if needed),
+`P` will do the same but remove (pop) the top of the clipboard, leaving older entries, and `Y` will just remove the top of the clipboard.
 
 You can also press `i`/`I` to go to the first/last Char of the current pointee and enter the `Insert` mode.
 Pressing `c` will delete the pointee and go to `Insert` mode in its place, and pressing `C` (Shift+c) will delete everything between the beginning of the pointee to the beginning of the next sibling and then go to `Insert` mode, and `Alt+c` will delete the parent and then go to `Insert` mode.
 
 You can undo the changes done by `d`, `D`, `Alt+d`, `c`, `C`, `Alt+c`, or things you've typed in a single Insert mode session by pressing `u`. `U` will re-do the change you just undid.
+
+## Commands
+
+To enter Command mode, press `:` while in Normal mode. Now, everything you type will get appended to the current command. `RET` (Enter) executes the command.
+
+So, for example, if you're in Normal mode and press `:` `w` `RET`, a command `"w"` will get executed.
+
+The "w" command, coincidentally, is writing. If a file is currently open (e.g. you've started thunderstruct with an argument), it will write to that file.
+You can also pass it a file to write by appending characters to the command, e.g. `"wREADME.md"` will write to the file "README.md".
+
+The "q" command will quit the editor. If the contents of the buffer differs from the contents of the file on disk, it will tell you so. You can use "q!" command to exit anyways.
+
+The "e" command will open a file for editing. It can be passed an argument similarly to "w", e.g. "eREADME.md" will open README.md.
+
+The "#" command will change the cursor tree types to its argument. The argument is comma-separated list of first characters of names of the structure units ('c' for Char, 'w' for Word, etc.). E.g. "#l,c" will change the cursor to be [Line, Character].
+The command makes sure to keep the pointee either the same or as close as possible to the current one.
+
+The "@" command will either change the cursor tree types or cursor tree indicies, depending on the argument.
+
+- If the argument is same as for "#" (comma-separated list of characters), then the end of the cursor tree is updated to have these types.
+  E.g. "@w" when the cursor is `[Line, Char]` will turn the cursor into `[Line, Word]`, and "@w,c" when the cursor is `[Line, Sentence, Word]` will turn the cursor into `[Line, Word, Char]`.
+- If the argument is a comma-separted list of non-negative integers, then the end of the cursor tree will be updated to have these indicies.
+  E.g. "@0" when the cursor is `[Line, Char]` will jump to the first character of the line, and "@5,9" will jump to the 10th character of the 6th line.

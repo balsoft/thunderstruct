@@ -79,6 +79,7 @@ executable thunderstruct
                       parsec,
                       process,
                       colour,
+                      safe,
 
     -- Directories containing source files.
     hs-source-dirs:   app

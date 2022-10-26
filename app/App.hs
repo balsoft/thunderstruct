@@ -15,6 +15,7 @@ import qualified Data.List.NonEmpty as NE
 import Util
 import Prelude hiding (Char, Word)
 import qualified Prelude
+import Numeric.Natural (Natural)
 
 data Mode = Normal | Command String | Insert | Replace | Select deriving (Show, Eq)
 
@@ -73,20 +74,29 @@ toParent = fixMode . (_cursors . ix 0 %~ drop 1) . saveCursorHistory
 toChild :: App -> App
 toChild app@App {..} = _cursors . ix 0 %~ firstChild contents $ saveCursorHistory app
 
+-- updateActiveCursor :: (Cursor -> Cursor) -> App -> App
+-- updateActiveCursor action app@App {..} = _cursors . ix 0 %~ (\c -> findCursor contents (action c) (metaCursor c)) $ saveCursorHistory app
+
+updateActiveCursorType :: (Cursor -> Cursor) -> App -> App
+updateActiveCursorType action app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ action c)) $ saveCursorHistory app
+
 toPrevTypeSibling :: App -> App
-toPrevTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 prevType c)) $ saveCursorHistory app
+toPrevTypeSibling app@App {..} = updateActiveCursorType (prevTypeSibling contents) $ app
 
 toNextTypeSibling :: App -> App
-toNextTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 nextType c)) $ saveCursorHistory app
+toNextTypeSibling app@App {..} = updateActiveCursorType (nextTypeSibling contents) $ app
 
 toFirstTypeSibling :: App -> App
-toFirstTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 (_cursorType .~ minBound) c)) $ saveCursorHistory app
+toFirstTypeSibling = updateActiveCursorType (modifyAt 0 (_cursorType .~ minBound))
 
 toLastTypeSibling :: App -> App
-toLastTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 (_cursorType .~ maxBound ) c)) $ saveCursorHistory app
+toLastTypeSibling = updateActiveCursorType (modifyAt 0 (_cursorType .~ maxBound))
+
+toNthTypeSibling :: Natural -> App -> App
+toNthTypeSibling n = updateActiveCursorType (modifyAt 0 (toNthType n))
 
 toBestASTNode :: App -> App
-toBestASTNode app@App {..} = fixMode $ _cursors . ix 0 %~ bestASTNode contents $ saveCursorHistory app
+toBestASTNode app@App {..} = updateActiveCursorType (bestASTNode contents) app
 
 toInsertMode :: App -> App
 toInsertMode = charCursor . (_mode .~ Insert) . saveHistory
@@ -184,8 +194,14 @@ redoCursor app@App {..} = case cursorHistoryBack of
   entry:rest -> fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c entry) $ _cursorHistoryBack .~ rest $ _cursorHistory %~ (metaCursor (NE.head cursors) :) $ app
   _ -> app
 
+(?:) :: Eq a => a -> [a] -> [a]
+a ?: [] = [a]
+a ?: as@(a':_)
+  | a /= a' = a:as
+  | otherwise = as
+
 saveHistory :: App -> App
-saveHistory app@App {..} = _historyBack .~ [] $ _history %~ (contents :) $ app
+saveHistory app@App {..} = _historyBack .~ [] $ _history %~ (contents ?:) $ app
 
 saveCursorHistory :: App -> App
-saveCursorHistory app@App {..} = _cursorHistoryBack .~ [] $ _cursorHistory %~ (metaCursor (NE.head cursors) :) $ app
+saveCursorHistory app@App {..} = _cursorHistoryBack .~ [] $ _cursorHistory %~ (metaCursor (NE.head cursors) ?:) $ app
