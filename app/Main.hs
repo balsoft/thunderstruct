@@ -13,7 +13,6 @@ import Data.Default.Class (Default (def))
 import Data.List (genericDrop, genericTake, intercalate, sort)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (maybeToList)
-import Data.Word (Word8)
 import GHC.IO.Handle
 import Numeric.Natural (Natural)
 import System.Console.ANSI
@@ -24,7 +23,7 @@ import System.IO
 import Util
 import Data.Colour
 import Data.Colour.SRGB (sRGB, sRGB24show)
-import Data.Colour.Names (white, green, orange)
+import Data.Colour.Names (white, orange)
 
 setup :: IO ()
 setup = do
@@ -60,13 +59,13 @@ showRanges = concatMap (\(len, pos) -> show len ++ "[" ++ show pos ++ "]")
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport app@App {..} =
-  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ align width AlignLeft ' ' (concat (maybeToList (app ^. message))) "",
+  [ setSGRCode [SetPaletteColor Background 235, SetDefaultColor Foreground] ++ align width AlignLeft ' ' (concat (maybeToList (app ^. _message))) "",
     align
       width
       AlignLeft
       ' '
-      (show (app ^. mode) ++ "@" ++ show (reverse $ NE.head _cursors) ++ "→" ++ showRanges (getCursorRanges _contents _cursors))
-      (show (app ^. file) ++ "@" ++ showPos viewport)
+      (show mode ++ "@" ++ show (reverse $ NE.head cursors) ++ "→" ++ showRanges (getCursorRanges contents cursors))
+      (show file ++ "@" ++ showPos viewport)
   ]
 
 -- isWithinRange :: Ord a => a -> (a, a) -> Bool
@@ -75,7 +74,7 @@ statusBar width viewport app@App {..} =
 optimalViewport :: (Natural, Natural) -> App -> (Natural, Natural)
 optimalViewport (h, w) App {..} = (vy, vx)
   where
-    ((y, x), (y', x')) = getCursorAbsolute _contents (NE.head _cursors)
+    ((y, x), (y', x')) = getCursorAbsolute contents (NE.head cursors)
     vx = max (x ?- w) (x' ?- w)
     vy = ((y + y') `div` 2) ?- (h `div` 2)
 
@@ -131,7 +130,7 @@ colourForMode Insert = orange
 colourForMode _ = white
 
 cursorColor :: App -> Int -> (Colour Float, Colour Float)
-cursorColor App {..} n = (case n of 0 -> black; _ -> white, case n of 0 -> colourForMode _mode; 1 -> sRGB 0.15 0.15 0.15; 2 -> sRGB 0.05 0.05 0.05; _ -> black)
+cursorColor App {..} n = (case n of 0 -> black; _ -> white, case n of 0 -> colourForMode mode; 1 -> sRGB 0.15 0.15 0.15; 2 -> sRGB 0.05 0.05 0.05; _ -> black)
 
 render :: App -> IO ()
 render app@App {..} = do
@@ -141,10 +140,10 @@ render app@App {..} = do
     Nothing -> render app
     Just (h, w) -> do
       let (vy, vx) = optimalViewport (fromIntegral h, fromIntegral w) app
-      let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines (app ^. contents))
-      let activeCursor = NE.head _cursors
-      let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition _contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
-      let ((y, x), (y', x')) = relativeCursorPosition _contents (vy, vx) activeCursor
+      let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines contents)
+      let activeCursor = NE.head cursors
+      let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
+      let ((y, x), (y', x')) = relativeCursorPosition contents (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
       let !screen = align (fromIntegral h) AlignRight ("\n" <> clearLineCode) coloredContent (statusBar (fromIntegral w) (vy, vx) app)
@@ -153,14 +152,14 @@ render app@App {..} = do
       mapM_ putStr screen
       if y == y' && x == x'
         then do
-          putStr $ "\ESC]12;" ++ sRGB24show (colourForMode _mode)
+          putStr $ "\ESC]12;" ++ sRGB24show (colourForMode mode)
           setCursorPosition (fromIntegral y) (fromIntegral x)
           showCursor
         else do
           hideCursor
 
 isSaved :: App -> IO Bool
-isSaved App {..} = case _file of
+isSaved App {..} = case file of
   Nothing -> return False
   Just fName -> do
     exists <- doesFileExist fName
@@ -168,31 +167,31 @@ isSaved App {..} = case _file of
       then return False
       else do
         contents' <- readFile fName
-        return $ contents' == _contents
+        return $ contents' == contents
 
 execute :: App -> String -> IO App
 execute app@App {} "q" = do
   saved <- isSaved app
-  if saved then cleanup >> exitSuccess else return $ message ?~ "There are unsaved changes. Please save them with [:w] or use [:q!]" $ app
+  if saved then cleanup >> exitSuccess else return $ _message ?~ "There are unsaved changes. Please save them with [:w] or use [:q!]" $ app
 execute App {} "q!" = cleanup >> exitFailure
 execute app@App {..} ('w' : fname) = do
   if not $ null fname
-    then writeFile fname _contents >> return (file ?~ fname $ app)
-    else case _file of
-      Just file' -> writeFile file' _contents >> return app
-      Nothing -> return $ message ?~ "No file is currently open. Pass the file name after :w, like [:w<filename>]" $ app
+    then writeFile fname contents >> return (_file ?~ fname $ app)
+    else case file of
+      Just file' -> writeFile file' contents >> return app
+      Nothing -> return $ _message ?~ "No file is currently open. Pass the file name after :w, like [:w<filename>]" $ app
 execute app@App {} ('e' : fname) = do
   exists <- doesFileExist fname
   contents' <-
     if exists
       then readFile fname
       else return ""
-  return $ contents .~ contents' $ file ?~ fname $ app
-execute app c = return $ message ?~ "Unknown command: " <> c $ app
+  return $ _contents .~ contents' $ _file ?~ fname $ app
+execute app c = return $ _message ?~ "Unknown command: " <> c $ app
 
 handleSequence :: App -> String -> IO App
 handleSequence app@(App {..}) c
-  | c == "\ESC" = return $ mode .~ Normal $ app
+  | c == "\ESC" = return $ _mode .~ Normal $ app
   | c == "\ESC[D" = return $ toPrevSibling app -- ←
   | c == "\ESC[B" = return $ toNextCousin app -- ↓
   | c == "\ESC[A" = return $ toPrevCousin app -- ↑
@@ -209,44 +208,44 @@ handleSequence app@(App {..}) c
   | c == "\ESCu" = return $ undoCursor app
   | c == "\ESCU" = return $ redoCursor app
   -- \| c == '\DEL' = return $ deleteUnderCursor app
-  | _mode == Normal = case c of
-      "h" -> return $ toPrevSibling app
-      "j" -> return $ toNextCousin app
-      "k" -> return $ toPrevCousin app
-      "l" -> return $ toNextSibling app
-      "i" -> return $ toInsertMode app
-      "I" -> return $ toLastSibling $ toInsertMode app
-      "c" -> return $ replaceUnderCursor $ app
-      "C" -> return $ replaceToNextSibling app
-      "\ESCc" -> return $ toInsertMode $ deleteParent app
-      "d" -> return $ deleteUnderCursor app
-      "\ESCd" -> return $ deleteParent app
-      "D" -> return $ deleteToNextSibling app
+  | mode == Normal = return $ case c of
+      "h" -> toPrevSibling app
+      "j" -> toNextCousin app
+      "k" -> toPrevCousin app
+      "l" -> toNextSibling app
+      "i" -> toInsertMode app
+      "I" -> toLastSibling $ toInsertMode app
+      "c" -> replaceUnderCursor app
+      "C" -> replaceToNextSibling app
+      "\ESCc" -> toInsertMode $ deleteParent app
+      "d" -> deleteUnderCursor app
+      "\ESCd" -> deleteParent app
+      "D" -> deleteToNextSibling app
       -- "\ESCD" -> return $ deleteParentToNextSibling app
-      "y" -> return $ yank app
-      "Y" -> return $ dropClipboard app
-      "p" -> return $ paste app
-      "P" -> return $ pop app
-      "u" -> return $ undo app
-      "U" -> return $ redo app
-      ":" -> return $ mode .~ Command "" $ app
-      _ -> return app
-  | _mode == Insert = return $ case c of
+      "y" -> yank app
+      "Y" -> dropClipboard app
+      "p" -> paste app
+      "P" -> pop app
+      "u" -> undo app
+      "U" -> redo app
+      ":" -> _mode .~ Command "" $ app
+      _ -> app
+  | mode == Insert = return $ case c of
       "\DEL" -> deleteCharacter app
       [ch] -> insert ch app
       _ -> app
-  | otherwise = case _mode of
+  | otherwise = case mode of
       Command command -> case c of
-        "\n" -> (mode .~ Normal) <$> execute app command
-        "\DEL" -> return $ mode .~ Command (init' command) $ app
-        [ch] -> return $ mode .~ Command (command ++ [ch]) $ app
+        "\n" -> (_mode .~ Normal) <$> execute app command
+        "\DEL" -> return $ _mode .~ Command (init' command) $ app
+        [ch] -> return $ _mode .~ Command (command ++ [ch]) $ app
         _ -> return app
       _ -> return app
 
 mainLoop :: App -> IO App
 mainLoop app = do
   render app
-  getBlockOfChars stdin >>= handleSequence (message .~ Nothing $ app)
+  getBlockOfChars stdin >>= handleSequence (_message .~ Nothing $ app)
 
 -- From Haskeline
 -- Copyright 2007 Judah Jacobson
@@ -274,9 +273,9 @@ main = do
                 if exists
                   then do
                     contents' <- readFile fname
-                    return $ contents .~ contents' $ file ?~ fname $ def
+                    return $ _contents .~ contents' $ _file ?~ fname $ def
                   else do
-                    return $ file ?~ fname $ def
+                    return $ _file ?~ fname $ def
               _ -> return def
           )
   iterateM_ mainLoop app

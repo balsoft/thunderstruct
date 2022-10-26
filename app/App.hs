@@ -6,187 +6,183 @@
 
 module App where
 
-import Control.Exception (catch)
 import Control.Lens
 import Cursor
 import Data.Default.Class
-import Data.List (genericLength)
-import Data.List.Index (modifyAt, setAt)
+import Data.List.Index (modifyAt)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
-import System.Process (callProcess, readProcess)
 import Util
 import Prelude hiding (Char, Word)
 import qualified Prelude
-import Debug.Trace (traceShowId)
 
-data Mode = Normal | Command String | Insert | Replace | Select Cursors Cursors deriving (Show, Eq)
+data Mode = Normal | Command String | Insert | Replace | Select deriving (Show, Eq)
 
 data App = App
-  { _contents :: String,
-    _message :: Maybe String,
-    _file :: Maybe FilePath,
-    _mode :: Mode,
-    _history :: [String],
-    _historyBack :: [String],
-    _cursorHistory :: [MetaCursor],
-    _cursorHistoryBack :: [MetaCursor],
-    _clipboard :: [String],
-    _cursors :: Cursors
+  { contents :: String,
+    message :: Maybe String,
+    file :: Maybe FilePath,
+    mode :: Mode,
+    history :: [String],
+    historyBack :: [String],
+    cursorHistory :: [MetaCursor],
+    cursorHistoryBack :: [MetaCursor],
+    clipboard :: [String],
+    cursors :: Cursors
   }
   deriving (Show)
 
 instance Default App where
   def =
     App
-      { _contents = "",
-        _message = Nothing,
-        _file = Nothing,
-        _mode = Normal,
-        _history = [],
-        _historyBack = [],
-        _cursorHistory = [],
-        _cursorHistoryBack = [],
-        _clipboard = [],
-        _cursors = [] :| []
+      { contents = "",
+        message = Nothing,
+        file = Nothing,
+        mode = Normal,
+        history = [],
+        historyBack = [],
+        cursorHistory = [],
+        cursorHistoryBack = [],
+        clipboard = [],
+        cursors = [] :| []
       }
 
-$(makeLenses ''App)
+$(makeLensesFor (map (\name -> (name, '_':name)) ["contents", "message", "file", "mode", "history", "historyBack", "cursorHistory", "cursorHistoryBack", "clipboard", "cursors"]) ''App)
 
 toNextSibling :: App -> App
-toNextSibling app@App {..} = cursors . ix 0 %~ nextSibling _contents $ app
+toNextSibling app@App {..} = _cursors . ix 0 %~ nextSibling contents $ app
 
 toPrevSibling :: App -> App
-toPrevSibling app@App {..} = cursors . ix 0 %~ prevSibling _contents $ app
+toPrevSibling app@App {..} = _cursors . ix 0 %~ prevSibling contents $ app
 
 toFirstSibling :: App -> App
-toFirstSibling app@App {..} = cursors . ix 0 %~ firstSibling _contents $ app
+toFirstSibling app@App {..} = _cursors . ix 0 %~ firstSibling contents $ app
 
 toLastSibling :: App -> App
-toLastSibling app@App {..} = cursors . ix 0 %~ lastSibling _contents $ app
+toLastSibling app@App {..} = _cursors . ix 0 %~ lastSibling contents $ app
 
 toNextCousin :: App -> App
-toNextCousin app@App {..} = cursors . ix 0 %~ nextCousin _contents $ app
+toNextCousin app@App {..} = _cursors . ix 0 %~ nextCousin contents $ app
 
 toPrevCousin :: App -> App
-toPrevCousin app@App {..} = cursors . ix 0 %~ prevCousin _contents $ app
+toPrevCousin app@App {..} = _cursors . ix 0 %~ prevCousin contents $ app
 
 toParent :: App -> App
-toParent = fixMode . (cursors . ix 0 %~ drop 1) . saveCursorHistory
+toParent = fixMode . (_cursors . ix 0 %~ drop 1) . saveCursorHistory
 
 toChild :: App -> App
-toChild app@App {..} = cursors . ix 0 %~ firstChild _contents $ saveCursorHistory app
+toChild app@App {..} = _cursors . ix 0 %~ firstChild contents $ saveCursorHistory app
 
 toPrevTypeSibling :: App -> App
-toPrevTypeSibling app@App {..} = fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 prevType c)) $ saveCursorHistory app
+toPrevTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 prevType c)) $ saveCursorHistory app
 
 toNextTypeSibling :: App -> App
-toNextTypeSibling app@App {..} = fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 nextType c)) $ saveCursorHistory app
+toNextTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 nextType c)) $ saveCursorHistory app
 
 toFirstTypeSibling :: App -> App
-toFirstTypeSibling app@App {..} = fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 (\c -> c { cursorType = minBound }) c)) $ saveCursorHistory app
+toFirstTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 (_cursorType .~ minBound) c)) $ saveCursorHistory app
 
 toLastTypeSibling :: App -> App
-toLastTypeSibling app@App {..} = fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c (metaCursor $ updateCursor c $ modifyAt 0 (\c -> c { cursorType = maxBound }) c)) $ saveCursorHistory app
+toLastTypeSibling app@App {..} = fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c (metaCursor $ updateCursor c $ modifyAt 0 (_cursorType .~ maxBound ) c)) $ saveCursorHistory app
 
 toBestASTNode :: App -> App
-toBestASTNode app@App {..} = fixMode $ cursors . ix 0 %~ bestASTNode _contents $ saveCursorHistory app
+toBestASTNode app@App {..} = fixMode $ _cursors . ix 0 %~ bestASTNode contents $ saveCursorHistory app
 
 toInsertMode :: App -> App
-toInsertMode =  charCursor . (mode .~ Insert) . saveHistory
+toInsertMode =  charCursor . (_mode .~ Insert) . saveHistory
 
 fixCursor :: App -> App
-fixCursor app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor _contents c c) $ app
+fixCursor app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents c c) $ app
 
 fixCursorAfter :: (App -> App) -> App -> App
-fixCursorAfter trans app@App {..} = let app' = trans app in cursors . ix 0 %~ (\c -> coerceCursor (app' ^. contents) [CN Char (getCharacterPos (app ^. contents) c)] c) $ app'
+fixCursorAfter trans app = let app' = trans app in _cursors . ix 0 %~ (\c -> coerceCursor (app' ^. _contents) [CN Char (getCharacterPos (app ^. _contents) c)] c) $ app'
 
 fixMode :: App -> App
-fixMode app@App { _cursors = ((CN Char _):_):|_, _mode = Insert } = app
-fixMode app@App { _mode = Insert } = mode .~ Normal $ app -- Insert mode is only available with a char cursor
+fixMode app@App { cursors = ((CN Char _):_):|_, mode = Insert } = app
+fixMode app@App { mode = Insert } = _mode .~ Normal $ app -- Insert mode is only available with a char cursor
 fixMode app = app
 
 insertAfter :: Prelude.Char -> App -> App
-insertAfter c app@App {..} = contents %~ insertAt (getCharacterPos _contents (NE.head _cursors)) c $ app
+insertAfter c app@App {..} = _contents %~ insertAt (getCharacterPos contents (NE.head cursors)) c $ app
 
 charCursor :: App -> App
-charCursor app@App {..} = (cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; (other:rest) :| rest' -> coerceCursor _contents (other:rest) (CN Char 0 : rest) :| rest'; _ -> c)) $ saveCursorHistory app
+charCursor app@App {..} = (_cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; (other:rest) :| rest' -> coerceCursor contents (other:rest) (CN Char 0 : rest) :| rest'; _ -> c)) $ saveCursorHistory app
 
 insert :: Prelude.Char -> App -> App
-insert char app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c + 1)] c) $ contents .~ contents' $ app
-  where contents' = insertAt (getCharacterPos _contents (NE.head _cursors)) char _contents
+insert char app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents c + 1)] c) $ _contents .~ contents' $ app
+  where contents' = insertAt (getCharacterPos contents (NE.head cursors)) char contents
 
 
 deleteUnderCursor' :: App -> App
-deleteUnderCursor' app@App {..} = contents %~ deleteMany (getCursorRange _contents (NE.head _cursors)) $ app
+deleteUnderCursor' app@App {..} = _contents %~ deleteMany (getCursorRange contents (NE.head cursors)) $ app
 
 deleteUnderCursor :: App -> App
 deleteUnderCursor = fixCursorAfter deleteUnderCursor' . saveHistory
 
 deleteToNextSibling' :: App -> App
-deleteToNextSibling' app@App {..} = contents %~ deleteMany (pos, pos' - pos) $ app
+deleteToNextSibling' app@App {..} = _contents %~ deleteMany (pos, pos' - pos) $ app
   where
-    (pos, _) = getCursorRange _contents (NE.head _cursors)
-    (pos', _) = getCursorRange _contents $ nextSibling _contents (NE.head _cursors)
+    (pos, _) = getCursorRange contents (NE.head cursors)
+    (pos', _) = getCursorRange contents $ nextSibling contents (NE.head cursors)
 
 deleteToNextSibling :: App -> App
 deleteToNextSibling = fixCursorAfter deleteToNextSibling' . saveHistory
 
 deleteParent :: App -> App
-deleteParent app@App {..} = fixCursorAfter (contents %~ deleteMany (getCursorRange _contents $ drop 1 (NE.head _cursors))) $ saveHistory app
+deleteParent app@App {..} = fixCursorAfter (_contents %~ deleteMany (getCursorRange contents $ drop 1 (NE.head cursors))) $ saveHistory app
 
 deleteCharacter :: App -> App
-deleteCharacter app@App {..} = cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos _contents c ?- (1 :: Int))] c) $ contents .~ contents' $ app
-  where contents' = deleteAt (getCharacterPos _contents (NE.head _cursors) ?- (1 :: Int) :: Int) _contents
+deleteCharacter app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents c ?- (1 :: Int))] c) $ _contents .~ contents' $ app
+  where contents' = deleteAt (getCharacterPos contents (NE.head cursors) ?- (1 :: Int) :: Int) contents
 
 replaceUnderCursor :: App -> App
-replaceUnderCursor app@App {..} = contents .~ (deleteUnderCursor' app ^. contents) $ toInsertMode app
+replaceUnderCursor app = _contents .~ (deleteUnderCursor' app ^. _contents) $ toInsertMode app
 
 replaceToNextSibling :: App -> App
-replaceToNextSibling app@App {..} = contents .~ (deleteToNextSibling' app ^. contents) $ toInsertMode app
+replaceToNextSibling app = _contents .~ (deleteToNextSibling' app ^. _contents) $ toInsertMode app
 
 -- yank :: App -> IO App
--- yank app@App {..} = callProcess "wl-copy" [slice (getCursorRange _contents (NE.head _cursors)) _contents] `catch` (\(_ :: IOError) -> return ()) >> pure app
+-- yank app@App {..} = callProcess "wl-copy" [slice (getCursorRange _contents (NE.head __cursors)) _contents] `catch` (\(_ :: IOError) -> return ()) >> pure app
 
 -- paste :: App -> IO App
--- paste app@App {..} = (\clipboard -> contents %~ (insertMany (getCharacterPos _contents (NE.head _cursors)) clipboard . deleteMany (getCursorRange _contents (NE.head _cursors))) $ saveHistory app) <$> readProcess "wl-paste" ["-n"] ""
+-- paste app@App {..} = (\clipboard -> contents %~ (insertMany (getCharacterPos _contents (NE.head __cursors)) clipboard . deleteMany (getCursorRange _contents (NE.head __cursors))) $ saveHistory app) <$> readProcess "wl-paste" ["-n"] ""
 
 yank :: App -> App
-yank app@App {..} = clipboard %~ (slice (getCursorRange _contents (NE.head _cursors)) _contents :) $ app
+yank app@App {..} = _clipboard %~ (slice (getCursorRange contents (NE.head cursors)) contents :) $ app
 
 dropClipboard :: App -> App
-dropClipboard = clipboard %~ drop 1
+dropClipboard = _clipboard %~ drop 1
 
 paste :: App -> App
-paste app@App {_clipboard = entry:_, ..} = contents %~ insertMany (getCharacterPos _contents (NE.head (app ^. cursors))) entry $ charCursor $ saveHistory app
+paste app@App {clipboard = entry:_, ..} = _contents %~ insertMany (getCharacterPos contents (NE.head (app ^. _cursors))) entry $ charCursor $ saveHistory app
 paste app = app
 
 pop :: App -> App
-pop app@App {_clipboard = entry:rest, ..} = clipboard .~ rest $ contents %~ insertMany (getCharacterPos _contents (NE.head (app ^. cursors))) entry $ charCursor $ saveHistory app
+pop app@App {clipboard = entry:rest, ..} = _clipboard .~ rest $ _contents %~ insertMany (getCharacterPos contents (NE.head (app ^. _cursors))) entry $ charCursor $ saveHistory app
 pop app = app
 
 undo :: App -> App
-undo app@App {..} = case _history of
-  entry:rest -> contents .~ entry $ history .~ rest $ historyBack %~ (_contents :) $ app
+undo app@App {..} = case history of
+  entry:rest -> _contents .~ entry $ _history .~ rest $ _historyBack %~ (contents :) $ app
   _ -> app
 
 redo :: App -> App
-redo app@App {..} = case _historyBack of
-  entry:rest -> contents .~ entry $ historyBack .~ rest $ history %~ (_contents :) $ app
+redo app@App {..} = case historyBack of
+  entry:rest -> _contents .~ entry $ _historyBack .~ rest $ _history %~ (contents :) $ app
   _ -> app
 
 undoCursor :: App -> App
-undoCursor app@App {..} = case _cursorHistory of
-  entry:rest -> fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c entry) $ cursorHistory .~ rest $ cursorHistoryBack %~ (metaCursor (NE.head _cursors) :) $ app
+undoCursor app@App {..} = case cursorHistory of
+  entry:rest -> fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c entry) $ _cursorHistory .~ rest $ _cursorHistoryBack %~ (metaCursor (NE.head cursors) :) $ app
   _ -> app
 
 redoCursor :: App -> App
-redoCursor app@App {..} = case _cursorHistoryBack of
-  entry:rest -> fixMode $ cursors . ix 0 %~ (\c -> findCursor _contents c entry) $ cursorHistoryBack .~ rest $ cursorHistory %~ (metaCursor (NE.head _cursors) :) $ app
+redoCursor app@App {..} = case cursorHistoryBack of
+  entry:rest -> fixMode $ _cursors . ix 0 %~ (\c -> findCursor contents c entry) $ _cursorHistoryBack .~ rest $ _cursorHistory %~ (metaCursor (NE.head cursors) :) $ app
   _ -> app
 
 saveHistory :: App -> App
-saveHistory app@App {..} = historyBack .~ [] $ history %~ (_contents :) $ app
+saveHistory app@App {..} = _historyBack .~ [] $ _history %~ (contents :) $ app
 
 saveCursorHistory :: App -> App
-saveCursorHistory app@App {..} = cursorHistoryBack .~ [] $ cursorHistory %~ (metaCursor (NE.head _cursors) :) $ app
+saveCursorHistory app@App {..} = _cursorHistoryBack .~ [] $ _cursorHistory %~ (metaCursor (NE.head cursors) :) $ app

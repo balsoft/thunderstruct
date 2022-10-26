@@ -1,4 +1,6 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-type-defaults #-}
 
 module Cursor where
 
@@ -8,18 +10,18 @@ import AST
     parseParensE,
     traverseAST,
   )
-import Control.Lens (Field1 (_1), (%~), (+~))
+import Control.Lens
 import Data.List (genericLength, genericTake)
 import Data.List.NonEmpty (NonEmpty)
-import Debug.Trace (traceShowId)
 import Numeric.Natural (Natural)
 import Util
 import Prelude hiding (Char, Word)
-import Data.List.Index (modifyAt)
 
 data CursorType = Char | Word | Sentence | Line | Paragraph | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
 
 data CursorNode = CN {cursorType :: CursorType, idx :: Natural} deriving (Eq)
+
+$(makeLensesFor [("cursorType", "_cursorType"), ("idx", "_idx")] ''CursorNode)
 
 instance Show CursorNode where
   show (CN t i) = show t ++ " " ++ show i
@@ -87,8 +89,8 @@ reachableRanges s path@(ASTNode : _) =
                     ranges (ASTNode : rc) nodes =
                       concat
                         [ case node of
-                            Parens nodes' from to -> let (pos', len') = fromToToPosLens s' (from, to) in ([(CN ASTNode i : cur, (pos + pos', len')) | null rc]) ++ map (_1 %~ (++ [CN ASTNode i])) (ranges rc nodes')
-                            Token _ from to | null rc -> let (pos', len') = fromToToPosLens s' (from, to) in [(CN ASTNode i : cur, (pos + pos', len'))]
+                            Parens nodes' from' to' -> let (pos', len') = fromToToPosLens s' (from', to') in ([(CN ASTNode i : cur, (pos + pos', len')) | null rc]) ++ map (_1 %~ (++ [CN ASTNode i])) (ranges rc nodes')
+                            Token _ from' to' | null rc -> let (pos', len') = fromToToPosLens s' (from', to') in [(CN ASTNode i : cur, (pos + pos', len'))]
                             _ -> []
                           | (i, node) <- zip [0 ..] nodes
                         ]
@@ -202,7 +204,7 @@ childrenOfType s cur t =
       Paragraph -> itemsIn s (getCursorRange s cur) splitParas
       ASTNode -> case parseParensE s of
         Right root@(Parens {}) -> case traverseAST (reverse $ map idx cur) root of
-          Right (Parens children _ _) -> [0 .. genericLength children]
+          Right (Parens children' _ _) -> [0 .. genericLength children']
           _ -> []
         _ -> []
 
@@ -243,24 +245,24 @@ firstChild s cursor = case childrenOf s cursor of
   _ -> cursor
 
 bestASTNode :: String -> Cursor -> Cursor
-bestASTNode s c = case concatMap (go []) allNodes of [] -> []; c:_ -> c
+bestASTNode s cur = case concatMap (go []) allNodes of [] -> []; c:_ -> c
   where
-    range = getCursorRange s c
+    range = getCursorRange s cur
 
     allNodes = case parseParensE s of
       Right n -> Just n
       Left _ -> Nothing
 
-    astNodeCovers (Parens _ from to) = fromToToPosLens s (from, to) `covers` range
-    astNodeCovers (Token _ from to) = fromToToPosLens s (from, to) `covers` range
+    astNodeCovers (Parens _ from' to') = fromToToPosLens s (from', to') `covers` range
+    astNodeCovers (Token _ from' to') = fromToToPosLens s (from', to') `covers` range
 
 
     go :: Cursor -> Node -> [Cursor]
-    go cur (Token {}) = [cur]
-    go cur self@(Parens nodes _ _)
+    go c (Token {}) = [c]
+    go c self@(Parens nodes _ _)
       | astNodeCovers self = case filter (astNodeCovers . snd) (zip [0..] nodes) of
-        [] -> [cur]
-        nodes' -> concatMap (\(i, n) -> go (CN ASTNode i : cur) n) nodes'
+        [] -> [c]
+        nodes' -> concatMap (\(i, n) -> go (CN ASTNode i : c) n) nodes'
       | otherwise = []
 -- moveTo :: String -> Cursor -> Cursor -> Cursor
 
@@ -270,7 +272,7 @@ nextSibling s (c:rest) = firstSibling s $ c : nextSibling s rest
 nextSibling _ [] = []
 
 firstSibling :: String -> Cursor -> Cursor
-firstSibling _ = modifyAt 0 (\c -> c { idx = 0 })
+firstSibling _ = ix 0 %~ (_idx .~ 0)
 
 nextCousin :: String -> Cursor -> Cursor
 nextCousin s (c:rest) = c : nextSibling s rest
@@ -282,7 +284,7 @@ prevSibling s (c:rest) = lastSibling s $ c : prevSibling s rest
 prevSibling _ [] = []
 
 lastSibling :: String -> Cursor -> Cursor
-lastSibling s (CN t i:rest) = CN t (genericLength (childrenOfType s rest t) - 1):rest
+lastSibling s (CN t _:rest) = CN t (genericLength (childrenOfType s rest t) ?- 1):rest
 lastSibling _ [] = []
 
 prevCousin :: String -> Cursor -> Cursor
