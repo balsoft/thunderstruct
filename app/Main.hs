@@ -136,7 +136,7 @@ colourForMode Insert = orange
 colourForMode _ = white
 
 cursorColor :: App -> Int -> (Colour Float, Colour Float)
-cursorColor App {..} n = (case n of 0 -> black; _ -> white, case n of 0 -> colourForMode mode; 1 -> sRGB 0.15 0.15 0.15; 2 -> sRGB 0.05 0.05 0.05; _ -> black)
+cursorColor App {..} n = (case n of 0 -> black; _ -> white, case n of 0 -> colourForMode mode; _ -> let i = 0.2 / (fromIntegral n ** 2) in sRGB i i i)
 
 -- h   j      k     l
 -- red yellow green blue
@@ -154,7 +154,7 @@ render app@App {..} = do
       let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines contents)
       let activeCursor = NE.head cursors
       let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
-      -- let cursorPeers = zip peerColors [relativeCursorPosition contents (vy, vx) cur | cur <- map (\c -> c contents activeCursor) [prevSibling, nextCousin, prevCousin, nextSibling]]
+      -- let cursorPeers = zip peerColors [relativeCursorPosition contents (vy, vx) cur | cur <- map (\c -> c contents activeCursor) [prevSibling, (\c s -> nextSibling c $ parent s), (\c s -> prevSibling c $ parent s), nextSibling]]
       let ((y, x), (y', x')) = relativeCursorPosition contents (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
@@ -212,14 +212,10 @@ execute app c = return $ _message ?~ ("Unknown command: " <> c, red) $ app
 
 handleSequence :: App -> String -> IO App
 handleSequence app@(App {..}) c
+  | c == "\ESC" && mode == Insert = return $ undoCursor $ _mode .~ Normal $ app
   | c == "\ESC" = return $ _mode .~ Normal $ app
-  | c == "\ESC[D" = return $ toPrevSibling app -- ←
-  | c == "\ESC[B" = return $ toNextCousin app -- ↓
-  | c == "\ESC[A" = return $ toPrevCousin app -- ↑
-  | c == "\ESC[C" = return $ toNextSibling app -- →
-  | c == "\ESC[H" = return $ toFirstSibling app -- Home
-  | c == "\ESC[F" = return $ toLastSibling app -- End
   | c == "\ESC:" = return $ toBestASTNode app
+  | c == "\ESC;" = return $ updateActiveCursorType (flip (findCursor contents) [Char, Line]) app 
   | c == "\ESCh" = return $ toPrevTypeSibling app
   | c == "\ESCH" = return $ toFirstTypeSibling app
   | c == "\ESCj" = return $ toChild app
@@ -228,13 +224,20 @@ handleSequence app@(App {..}) c
   | c == "\ESCL" = return $ toLastTypeSibling app
   | c == "\ESCu" = return $ undoCursor app
   | c == "\ESCU" = return $ redoCursor app
-  -- \| c == '\DEL' = return $ deleteUnderCursor app
   | otherwise = case mode of
       Normal -> return $ case c of
+        "\ESC[D" -> toPrevSibling app -- ←
+        "\ESC[B" -> toNextCousin app -- ↓
+        "\ESC[A" -> toPrevCousin app -- ↑
+        "\ESC[C" -> toNextSibling app -- →
+        "\ESC[H" -> toFirstSibling app -- Home
+        "\ESC[F" -> toLastSibling app -- End
         "h" -> toPrevSibling app
+        "H" -> toFirstSibling app
         "j" -> toNextCousin app
         "k" -> toPrevCousin app
         "l" -> toNextSibling app
+        "L" -> toLastSibling app
         "i" -> toInsertMode app
         "I" -> toInsertModeAfter app
         "c" -> replace app
@@ -260,6 +263,12 @@ handleSequence app@(App {..}) c
         _ -> app
       Insert -> return $ case c of
         "\DEL" -> deleteCharacter app
+        "\ESC[D" -> toPrevChar app -- ←
+        "\ESC[B" -> toNextCousin app -- ↓
+        "\ESC[A" -> toPrevCousin app -- ↑
+        "\ESC[C" -> toNextChar app -- →
+        "\ESC[H" -> toFirstSibling app -- Home
+        "\ESC[F" -> toLastChar app -- End
         [ch] -> insert ch app
         _ -> app
       Command command -> case c of

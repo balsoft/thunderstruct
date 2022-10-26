@@ -55,6 +55,15 @@ toNextSibling app@App {..} = _cursors . ix 0 %~ nextSibling contents $ app
 toPrevSibling :: App -> App
 toPrevSibling app@App {..} = _cursors . ix 0 %~ prevSibling contents $ app
 
+toNextChar :: App -> App
+toNextChar app@App {..} = _cursors . ix 0 %~ nextChar contents $ app
+
+toPrevChar :: App -> App
+toPrevChar app@App {..} = _cursors . ix 0 %~ prevChar contents $ app
+
+toLastChar :: App -> App
+toLastChar app@App {..} = _cursors . ix 0 %~ lastChar contents $ app
+
 toFirstSibling :: App -> App
 toFirstSibling app@App {..} = _cursors . ix 0 %~ firstSibling contents $ app
 
@@ -118,10 +127,10 @@ insertAfter :: Prelude.Char -> App -> App
 insertAfter c app@App {..} = _contents %~ insertAt (getCharacterPos contents (NE.head cursors)) c $ app
 
 charCursor :: App -> App
-charCursor app@App {..} = (_cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; (other:rest) :| rest' -> coerceCursor contents (other:rest) (CN Char 0 : rest) :| rest'; _ -> c)) $ saveCursorHistory app
+charCursor app@App {..} = (_cursors %~ (\c -> case c of ((CN Char _) : _) :| _ -> c; cur :| rest' -> coerceCursor contents cur (CN Char 0 : cur) :| rest'; _ -> c)) $ saveCursorHistory app
 
 insert :: Prelude.Char -> App -> App
-insert char app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents c + 1)] c) $ _contents .~ contents' $ app
+insert char app@App {..} = _cursors . ix 0 %~ (\c -> findCursor' contents' [CN Char (getCharacterPos contents c + 1)] (metaCursor c)) $ _contents .~ contents' $ app
   where contents' = insertAt (getCharacterPos contents (NE.head cursors)) char contents
 
 
@@ -141,7 +150,7 @@ deleteParent :: App -> App
 deleteParent app@App {..} = fixCursorsAfter (_contents %~ deleteMany (getCursorRange contents $ drop 1 (NE.head cursors))) $ saveHistory app
 
 deleteCharacter :: App -> App
-deleteCharacter app@App {..} = _cursors . ix 0 %~ (\c -> coerceCursor contents' [CN Char (getCharacterPos contents c ?- (1 :: Int))] c) $ _contents .~ contents' $ app
+deleteCharacter app@App {..} = _cursors . ix 0 %~ (\c -> findCursor' contents' [CN Char (getCharacterPos contents c ?- (1 :: Int))] (metaCursor c)) $ _contents .~ contents' $ app
   where contents' = deleteAt (getCharacterPos contents (NE.head cursors) ?- (1 :: Int) :: Int) contents
 
 replace :: App -> App
@@ -149,12 +158,6 @@ replace app = _contents .~ (delete' app ^. _contents) $ toInsertMode app
 
 replaceToNextSibling :: App -> App
 replaceToNextSibling app = _contents .~ (deleteToNextSibling' app ^. _contents) $ toInsertMode app
-
--- yank :: App -> IO App
--- yank app@App {..} = callProcess "wl-copy" [slice (getCursorRange _contents (NE.head __cursors)) _contents] `catch` (\(_ :: IOError) -> return ()) >> pure app
-
--- paste :: App -> IO App
--- paste app@App {..} = (\clipboard -> contents %~ (insertMany (getCharacterPos _contents (NE.head __cursors)) clipboard . deleteMany (getCursorRange _contents (NE.head __cursors))) $ saveHistory app) <$> readProcess "wl-paste" ["-n"] ""
 
 yank :: App -> App
 yank app@App {..} = _clipboard %~ (slice (getCursorRange contents (NE.head cursors)) contents :) $ app
@@ -187,12 +190,6 @@ undoCursor app@App {..} = fixMode $ (_cursors . ix 0) %? fmap (flip (findCursor 
 
 redoCursor :: App -> App
 redoCursor app@App {..} = fixMode $ (_cursors . ix 0) %? fmap (flip (findCursor contents)) (nextHistItem cursorHistory) $ _cursorHistory %~ backToTheFuture $ app
-
-(?:) :: Eq a => a -> [a] -> [a]
-a ?: [] = [a]
-a ?: as@(a':_)
-  | a /= a' = a:as
-  | otherwise = as
 
 saveHistory :: App -> App
 saveHistory app@App {..} = _history %~ newItem contents  $ app

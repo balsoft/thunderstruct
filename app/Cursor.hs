@@ -20,11 +20,12 @@ import Util
 import Prelude hiding (Char, Word)
 import qualified Prelude
 
-data CursorType = Char | Word | Sentence | Line | Paragraph | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
+data CursorType = Char | Word | WORD | Sentence | Line | Paragraph | ASTNode deriving (Show, Eq, Ord, Enum, Bounded)
 
 cursorByChar :: Prelude.Char -> Maybe CursorType
 cursorByChar 'c' = Just Char
 cursorByChar 'w' = Just Word
+cursorByChar 'W' = Just WORD
 cursorByChar 's' = Just Sentence
 cursorByChar 'l' = Just Line
 cursorByChar 'p' = Just Paragraph
@@ -42,15 +43,19 @@ instance Show CursorNode where
 consistsOf :: CursorType -> CursorType -> Bool
 ASTNode `consistsOf` ASTNode = True
 ASTNode `consistsOf` Word = True
+ASTNode `consistsOf` WORD = True
 ASTNode `consistsOf` Char = True
 Paragraph `consistsOf` Line = True
 Paragraph `consistsOf` Sentence = True
 Paragraph `consistsOf` Word = True
+Paragraph `consistsOf` WORD = True
 Paragraph `consistsOf` Char = True
 Line `consistsOf` Sentence = True
 Line `consistsOf` Word = True
+Line `consistsOf` WORD = True
 Line `consistsOf` Char = True
 Sentence `consistsOf` Word = True
+Sentence `consistsOf` WORD = True
 Sentence `consistsOf` Char = True
 Word `consistsOf` Char = True
 _ `consistsOf` _ = False
@@ -106,6 +111,7 @@ reachableRanges :: String -> MetaCursor -> [(Cursor, (Natural, Natural))]
 reachableRanges s [] = [([], (0, genericLength s))]
 reachableRanges s (Char : rest) = concat [[(CN Char c : cur, (pos + c, i)) | (c, i) <- zip (natRange 0 len) (repeat 1) ++ [(len, 0)]] | (cur, (pos, len)) <- reachableRanges s rest]
 reachableRanges s (Word : rest) = ranger s Word rest splitWords
+reachableRanges s (WORD : rest) = ranger s WORD rest splitWORDs
 reachableRanges s (Sentence : rest) = ranger s Sentence rest splitSentences
 reachableRanges s (Line : rest) = ranger s Line rest splitLines
 reachableRanges s (Paragraph : rest) = ranger s Paragraph rest splitParas
@@ -161,7 +167,21 @@ findCursor s c mc = case cursors of
     before = filter (\(_, r') -> r' < r) ranges
     after = filter (\(_, r') -> r' > r) ranges
 
-    cursors = covered ++ cover ++ (if cmp == LT then after ++ before else before ++ after)
+    cursors = covered ++ cover ++ (if cmp == LT then before ++ after else after ++ before)
+
+findCursor' :: String -> Cursor -> MetaCursor -> Cursor
+findCursor' _ _ [] = []
+findCursor' s c mc@(_:mc') = case covered ++ cover of
+  x : _ -> fst x
+  _ -> case findCursor' s c mc' of
+    cur@(CN Char _ : _) -> cur
+    cur -> let (pos', _) = getCursorRange s cur in CN Char (pos - pos') : cur
+  where
+    ranges = reachableRanges s mc
+    r@(pos, _) = getCursorRange s c
+
+    covered = filter (\(_, r') -> r `covers` r') ranges
+    cover = filter (\(_, r') -> r' `covers` r) ranges
 
 metaCursor :: Cursor -> MetaCursor
 metaCursor = map cursorType
@@ -176,6 +196,7 @@ getCursorRange :: String -> Cursor -> (Natural, Natural)
 getCursorRange buf [] = (0, genericLength buf)
 getCursorRange buf ((CN Char c) : xs) = let (pos, len) = getCursorRange buf xs in (pos + min len c, min 1 $ len ?- c)
 getCursorRange buf ((CN Word w) : xs) = cursorRanger buf nthWord w xs
+getCursorRange buf ((CN WORD w) : xs) = cursorRanger buf nthWORD w xs
 getCursorRange buf ((CN Sentence s) : xs) = cursorRanger buf nthSentence s xs
 getCursorRange buf ((CN Line l) : xs) = cursorRanger buf nthLine l xs
 getCursorRange buf ((CN Paragraph p) : xs) = cursorRanger buf nthPara p xs
@@ -197,8 +218,6 @@ getCursorToNextSiblingRange s cur = (pos, pos' - pos)
 
 getCharacterPos :: String -> Cursor -> Natural
 getCharacterPos s = fst . getCursorRange s
-
--- getCursorRange _ _ = error "Not implemented"
 
 getCursorRanges :: String -> Cursors -> NonEmpty (Natural, Natural)
 getCursorRanges buf = fmap (getCursorRange buf)
@@ -237,6 +256,7 @@ childrenOfType s cur t =
     else map (CN t) $ case t of
       Char -> [0 .. (snd $ getCursorRange s cur)]
       Word -> itemsIn s (getCursorRange s cur) splitWords
+      WORD -> itemsIn s (getCursorRange s cur) splitWORDs
       Line -> itemsIn s (getCursorRange s cur) splitLines
       Sentence -> itemsIn s (getCursorRange s cur) splitSentences
       Paragraph -> itemsIn s (getCursorRange s cur) splitParas
@@ -310,25 +330,52 @@ nextSibling s (c : rest) = firstSibling s $ c : nextSibling s rest
 nextSibling _ [] = []
 
 firstSibling :: String -> Cursor -> Cursor
-firstSibling _ = ix 0 %~ (_idx .~ 0)
+firstSibling s (CN t _ : rest) = case childrenOfType s rest t of
+  [] -> rest
+  _ -> CN t 0 : rest
+firstSibling _ [] = []
 
 nextCousin :: String -> Cursor -> Cursor
-nextCousin s (c : rest) = c : nextSibling s rest
+nextCousin s (CN t i : rest) = case childrenOfType s ps t of
+  [] -> ps -- If there are no children, go to parent
+  _ -> CN t i : ps
+  where ps = nextSibling s rest
 nextCousin _ c = c
 
 prevSibling :: String -> Cursor -> Cursor
-prevSibling s (CN t i : rest) | i >= genericLength (childrenOfType s rest t) = CN t (genericLength (childrenOfType s rest t) ?- 2) : rest
+prevSibling s (CN t i : rest) | i > 0 && i >= genericLength (childrenOfType s rest t) = CN t (genericLength (childrenOfType s rest t) ?- 2) : rest
 prevSibling _ (CN t i : rest) | i > 0 = CN t (i - 1) : rest
 prevSibling s (c : rest) = lastSibling s $ c : prevSibling s rest
 prevSibling _ [] = []
 
 lastSibling :: String -> Cursor -> Cursor
-lastSibling s (CN t _ : rest) = CN t (genericLength (childrenOfType s rest t) ?- 1) : rest
+lastSibling s (CN t _ : rest) = case childrenOfType s rest t of
+  [] -> rest
+  c -> CN t (genericLength c ?- 1) : rest
 lastSibling _ [] = []
 
 prevCousin :: String -> Cursor -> Cursor
-prevCousin s (c : rest) = c : prevSibling s rest
+prevCousin s (CN t i : rest) = case childrenOfType s ps t of
+  [] -> ps -- If there are no children, go to parent
+  _ -> CN t i : ps
+  where ps = prevSibling s rest
 prevCousin _ c = c
+
+nextChar :: String -> Cursor -> Cursor
+nextChar s c = findCursor' s [CN Char (getCharacterPos s c + 1)] (metaCursor c)
+
+prevChar :: String -> Cursor -> Cursor
+prevChar s c = findCursor' s [CN Char (getCharacterPos s c ?- 1)] (metaCursor c)
+
+lastChar :: String -> Cursor -> Cursor
+lastChar s (_:c) = CN Char (pos' - pos) : c
+  where
+    (pos, _) = getCursorRange s c
+    (pos', _) = getCursorRange s $ nextSibling s c
+lastChar s _ = undefined
+
+parent :: Cursor -> Cursor
+parent = drop 1
 
 type Cursor = [CursorNode]
 

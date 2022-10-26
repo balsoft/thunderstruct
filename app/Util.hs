@@ -1,13 +1,14 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Util where
 
-import Numeric.Natural
-import Data.List (genericTake, genericLength, genericDrop, isPrefixOf)
-import Data.List.NonEmpty (NonEmpty((:|)))
-import Data.List (sort)
-import Data.Default.Class
 import Control.Lens
+import Data.Default.Class
+import Data.List (genericDrop, genericLength, genericTake, isPrefixOf, sort)
+import Data.List.NonEmpty (NonEmpty ((:|)))
+import Numeric.Natural
+import Data.Char (isSymbol, isPunctuation)
 
 remove :: Eq a => a -> [a] -> [a]
 remove element = filter (/= element)
@@ -33,7 +34,7 @@ deleteMany (idx, cnt) xs = genericTake idx xs ++ genericDrop (idx + cnt) xs
 deleteMultiple :: (Integral idx, Ord idx) => [(idx, idx)] -> [a] -> [a]
 deleteMultiple ranges buf = go (sort ranges) buf 0
   where
-    go rs@((pos', len'):rs') s pos
+    go rs@((pos', len') : rs') s pos
       | pos' == pos = go rs' (genericDrop len' s) (pos + len')
       | pos' < pos && pos' + len' >= pos = go rs' (genericDrop (len' ?- (pos ?- 1)) s) (pos' + len')
       | pos' < pos = go rs' s pos
@@ -54,7 +55,7 @@ deleteMultiple ranges buf = go (sort ranges) buf 0
 --             --     x : _ -> [x],
 --               case s' of
 --                 [] -> []
---                 _ : s'' -> go 
+--                 _ : s'' -> go
 --             )
 --       )
 
@@ -63,7 +64,6 @@ deleteMultiple ranges buf = go (sort ranges) buf 0
 
 -- words' :: [Char] -> [[Char]]
 -- words' = splitBy' (`elem` " \n\t")
-
 
 slice :: (Natural, Natural) -> [a] -> [a]
 slice (pos, len) xs = genericTake len $ genericDrop pos xs
@@ -86,7 +86,7 @@ splitBy' _ [] = []
 splitBy' predicate str = go str 0 0
   where
     go [] pos len = [(pos - len, len)]
-    go (x:xs) pos len
+    go (x : xs) pos len
       | predicate x = (pos - len, len) : go xs (pos + 1) 0
       | otherwise = go xs (pos + 1) (len + 1)
 
@@ -104,20 +104,32 @@ if' True = 1
 if' False = 0
 
 wordSep :: String -> Natural
-wordSep = if' . (`elem` " \n\t") . head
+wordSep = if' . (`elem` " \n") . head
+
+wordSep' :: String -> Natural
+wordSep' = if' . (\c -> isPunctuation c || c `elem` " \n") . head
+
 lineSep :: String -> Natural
 lineSep = if' . (== '\n') . head
+
 paraSep :: String -> Natural
 paraSep = (* 2) . if' . isPrefixOf "\n\n"
+
 sentSep :: [Char] -> Natural
-sentSep = if' . (== '.') . head
+sentSep = (* 2) . if' . (\c -> ". " `isPrefixOf` c || ".\n" `isPrefixOf` c)
 
 splitWords :: [Char] -> [(Natural, Natural)]
-splitWords = splitBy'' wordSep
+splitWords = splitBy'' wordSep'
+
+splitWORDs :: [Char] -> [(Natural, Natural)]
+splitWORDs = splitBy'' wordSep
+
 splitLines :: [Char] -> [(Natural, Natural)]
 splitLines = splitBy'' lineSep
+
 splitParas :: [Char] -> [(Natural, Natural)]
 splitParas = splitBy'' paraSep
+
 splitSentences :: [Char] -> [(Natural, Natural)]
 splitSentences = splitBy'' sentSep
 
@@ -125,16 +137,23 @@ nthThing :: ([a] -> Natural) -> [a] -> Natural -> (Natural, Natural)
 nthThing predicate buf n = case s ?+! n of
   Just s' -> s'
   Nothing -> case s of
-    _:_ -> (uncurry (+) (last s), 0)
+    _ : _ -> (uncurry (+) (last s), 0)
     _ -> (0, 0)
-  where s = splitBy'' predicate buf
+  where
+    s = splitBy'' predicate buf
 
 nthWord :: [Char] -> Natural -> (Natural, Natural)
-nthWord = nthThing wordSep
+nthWord = nthThing wordSep'
+
+nthWORD :: [Char] -> Natural -> (Natural, Natural)
+nthWORD = nthThing wordSep
+
 nthLine :: [Char] -> Natural -> (Natural, Natural)
 nthLine = nthThing lineSep
+
 nthPara :: [Char] -> Natural -> (Natural, Natural)
 nthPara = nthThing paraSep
+
 nthSentence :: [Char] -> Natural -> (Natural, Natural)
 nthSentence = nthThing sentSep
 
@@ -163,9 +182,9 @@ itemsIn :: (Integral i1, Integral i2, Num a1, Enum a1) => [a2] -> (i2, i1) -> ([
 itemsIn s (pos, len) splitter = [0 .. genericLength (splitter $ genericTake len $ genericDrop pos s)]
 
 neTailSafe :: NonEmpty a -> NonEmpty a
-neTailSafe cur = case cur of (_ :| (cur':rest)) -> cur' :| rest; _ -> cur
+neTailSafe cur = case cur of (_ :| (cur' : rest)) -> cur' :| rest; _ -> cur
 
-data History a = History { past :: [a], future :: [a] } deriving (Show, Eq)
+data History a = History {past :: [a], future :: [a]} deriving (Show, Eq)
 
 instance Default (History a) where
   def = History [] []
@@ -173,19 +192,19 @@ instance Default (History a) where
 $(makeLensesFor [("past", "_past"), ("future", "_future")] ''History)
 
 backToTheFuture :: History a -> History a
-backToTheFuture (History past (entry:rest)) = History (entry : past) rest
+backToTheFuture (History past (entry : rest)) = History (entry : past) rest
 backToTheFuture a = a
 
 turnBackTime :: History a -> History a
-turnBackTime (History (entry:rest) future) = History rest (entry : future)
+turnBackTime (History (entry : rest) future) = History rest (entry : future)
 turnBackTime a = a
 
 currentHistItem :: History a -> Maybe a
-currentHistItem (History (entry:_) _) = Just entry
+currentHistItem (History (entry : _) _) = Just entry
 currentHistItem _ = Nothing
 
 nextHistItem :: History a -> Maybe a
-nextHistItem (History _ (entry:_)) = Just entry
+nextHistItem (History _ (entry : _)) = Just entry
 nextHistItem _ = Nothing
 
 newItem :: Eq a => a -> History a -> History a

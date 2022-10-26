@@ -16,8 +16,8 @@ parens :: Parser Node
 parens = do
   from <- sourcePos
   parens' <- between
-          (char '(')
-          (char ')')
+          (oneOf "({[")
+          (oneOf ")}]")
           (spaces *> (Parens <$> many node) <* spaces)
   parens' from <$> sourcePos
 
@@ -26,10 +26,10 @@ node =
   do
     from <- sourcePos
     nodef <-
-      Token <$> some (noneOf "() \n\t")
+      Token <$> some (noneOf "(){}[] \n\t")
         <|> between
-          (char '(')
-          (char ')')
+          (oneOf "({[")
+          (oneOf "])}")
           (spaces *> (Parens <$> many node) <* spaces)
     to <- sourcePos
     spaces
