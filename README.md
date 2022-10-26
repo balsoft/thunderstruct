@@ -109,8 +109,9 @@ There is also another way to navigate the cursor tree. See `#` and `@` commands 
 
 While in `Normal` mode, you can press `d` to delete the pointee, `D` (Shift+d) to delete everything from the beginning of pointee to the beginning of the next sibling, and `Alt+d` to delete the parent of the pointee.
 
-Pressing `y` will yank (copy) the current pointee and insert it to the top of the clipboard, `p` will paste from the top of the clipboard (dropping your cursor to Char if needed),
-`P` will do the same but remove (pop) the top of the clipboard, leaving older entries, and `Y` will just remove the top of the clipboard.
+Pressing `y` will yank (copy) the current pointee and insert it to the top of the clipboard, `Y` will yank all characters from beginning of current pointee to the beginning of the next one,
+`p` will paste from the top of the clipboard (dropping your cursor to Char if needed), `P` will do the same but remove (pop) the top of the clipboard, leaving older entries,
+and `Alt+p` will just remove the top of the clipboard.
 
 You can also press `i`/`I` to go to the first/last Char of the current pointee and enter the `Insert` mode.
 Pressing `c` will delete the pointee and go to `Insert` mode in its place, and pressing `C` (Shift+c) will delete everything between the beginning of the pointee to the beginning of the next sibling and then go to `Insert` mode,

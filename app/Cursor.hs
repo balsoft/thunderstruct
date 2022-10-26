@@ -13,6 +13,7 @@ import AST
 import Control.Lens
 import Data.List (genericLength, genericTake)
 import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import Numeric.Natural (Natural)
 import Safe (toEnumSafe, headDef, lastDef)
 import Util
@@ -188,6 +189,12 @@ getCursorRange buf cur@((CN ASTNode _) : _) =
           Left (Parens _ _ pos') -> (pos', pos')
         Left _ -> (0, 0)
 
+getCursorToNextSiblingRange :: String -> Cursor -> (Natural, Natural)
+getCursorToNextSiblingRange s cur = (pos, pos' - pos)
+  where
+    (pos, _) = getCursorRange s cur
+    (pos', _) = getCursorRange s $ nextSibling s cur
+
 getCharacterPos :: String -> Cursor -> Natural
 getCharacterPos s = fst . getCursorRange s
 
@@ -195,6 +202,9 @@ getCharacterPos s = fst . getCursorRange s
 
 getCursorRanges :: String -> Cursors -> NonEmpty (Natural, Natural)
 getCursorRanges buf = fmap (getCursorRange buf)
+
+getCursorToNextSiblingRanges :: String -> Cursors -> [(Natural, Natural)]
+getCursorToNextSiblingRanges s = NE.toList . fmap (getCursorToNextSiblingRange s)
 
 characterPosition :: String -> Natural -> (Natural, Natural)
 characterPosition buf i =

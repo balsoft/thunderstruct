@@ -1,7 +1,13 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 module Util where
 
 import Numeric.Natural
 import Data.List (genericTake, genericLength, genericDrop, isPrefixOf)
+import Data.List.NonEmpty (NonEmpty((:|)))
+import Data.List (sort)
+import Data.Default.Class
+import Control.Lens
 
 remove :: Eq a => a -> [a] -> [a]
 remove element = filter (/= element)
@@ -23,6 +29,16 @@ deleteAt idx xs = lft ++ drop 1 rgt
 
 deleteMany :: Integral idx => (idx, idx) -> [a] -> [a]
 deleteMany (idx, cnt) xs = genericTake idx xs ++ genericDrop (idx + cnt) xs
+
+deleteMultiple :: (Integral idx, Ord idx) => [(idx, idx)] -> [a] -> [a]
+deleteMultiple ranges buf = go (sort ranges) buf 0
+  where
+    go rs@((pos', len'):rs') s pos
+      | pos' == pos = go rs' (genericDrop len' s) (pos + len')
+      | pos' < pos && pos' + len' >= pos = go rs' (genericDrop (len' ?- (pos ?- 1)) s) (pos' + len')
+      | pos' < pos = go rs' s pos
+      | otherwise = genericTake (pos' - pos) s ++ go rs (genericDrop (pos' ?- pos) s) pos'
+    go [] s _ = s
 
 -- splitBy' :: (a -> Bool) -> [a] -> [(Natural, Natural)]
 -- splitBy' predicate s = go s 0
@@ -145,3 +161,43 @@ foldlPairs f i c = snd $ foldl step (Nothing, i) c
 
 itemsIn :: (Integral i1, Integral i2, Num a1, Enum a1) => [a2] -> (i2, i1) -> ([a2] -> [a3]) -> [a1]
 itemsIn s (pos, len) splitter = [0 .. genericLength (splitter $ genericTake len $ genericDrop pos s)]
+
+neTailSafe :: NonEmpty a -> NonEmpty a
+neTailSafe cur = case cur of (_ :| (cur':rest)) -> cur' :| rest; _ -> cur
+
+data History a = History { past :: [a], future :: [a] } deriving (Show, Eq)
+
+instance Default (History a) where
+  def = History [] []
+
+$(makeLensesFor [("past", "_past"), ("future", "_future")] ''History)
+
+backToTheFuture :: History a -> History a
+backToTheFuture (History past (entry:rest)) = History (entry : past) rest
+backToTheFuture a = a
+
+turnBackTime :: History a -> History a
+turnBackTime (History (entry:rest) future) = History rest (entry : future)
+turnBackTime a = a
+
+currentHistItem :: History a -> Maybe a
+currentHistItem (History (entry:_) _) = Just entry
+currentHistItem _ = Nothing
+
+nextHistItem :: History a -> Maybe a
+nextHistItem (History _ (entry:_)) = Just entry
+nextHistItem _ = Nothing
+
+newItem :: Eq a => a -> History a -> History a
+newItem a h@(History {..}) = case currentHistItem h of
+  Just a' | a' == a -> h
+  _ -> History (a : past) []
+
+maybeSetter :: (b -> a -> a) -> ASetter s t a a -> Maybe b -> s -> t
+maybeSetter g f x = runIdentity . f (Identity . maybe id g x)
+
+(.?) :: ASetter s t a a -> Maybe a -> s -> t
+(.?) = maybeSetter const
+
+(%?) :: ASetter s t a a -> Maybe (a -> a) -> s -> t
+(%?) = maybeSetter id
