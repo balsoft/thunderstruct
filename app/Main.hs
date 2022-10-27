@@ -7,25 +7,27 @@ module Main (main) where
 
 import App
 import Control.Lens
+import Control.Monad
 import Control.Monad.Loops (iterateM_)
 import Cursor
+import Data.Colour
+import Data.Colour.Names (darkblue, lightblue, orange, red, white)
+import Data.Colour.SRGB (sRGB, sRGB24show)
 import Data.Default.Class (Default (def))
 import Data.List (genericDrop, genericTake, intercalate, sort, sortBy, sortOn)
+import Data.List.Index (modifyAt)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (maybeToList, isJust)
+import Data.Maybe (isJust, maybeToList)
 import GHC.IO.Handle
 import Numeric.Natural (Natural)
+import Safe
 import System.Console.ANSI
 import System.Directory
 import System.Directory.Internal.Prelude (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO
 import Util
-import Data.Colour
-import Data.Colour.SRGB (sRGB, sRGB24show)
-import Data.Colour.Names (white, orange, lightblue, darkblue, red)
-import Safe
-import Data.List.Index (modifyAt)
+import System.Clipboard (getClipboard, setClipboard)
 
 setup :: IO ()
 setup = do
@@ -64,15 +66,15 @@ statusBarColor = sRGB 0.1 0.1 0.2
 
 statusBar :: Natural -> (Natural, Natural) -> App -> [String]
 statusBar width viewport App {..} =
-  (case message of Just (msg, clr) -> [setSGRCode [ SetRGBColor Background clr, SetDefaultColor Foreground ] ++ align width AlignLeft ' ' msg ""]; _ -> []) ++
-  [
-    setSGRCode [SetRGBColor Background statusBarColor, SetDefaultColor Foreground] ++ align
-      width
-      AlignLeft
-      ' '
-      (show mode ++ "@" ++ show (reverse $ NE.head cursors) ++ "→" ++ showRanges (getCursorRanges contents cursors))
-      (show file ++ "@" ++ showPos viewport)
-  ]
+  (case message of Just (msg, clr) -> [setSGRCode [SetRGBColor Background clr, SetDefaultColor Foreground] ++ align width AlignLeft ' ' msg ""]; _ -> [])
+    ++ [ setSGRCode [SetRGBColor Background statusBarColor, SetDefaultColor Foreground]
+           ++ align
+             width
+             AlignLeft
+             ' '
+             (show mode ++ "@" ++ show (reverse $ NE.head cursors) ++ "→" ++ showRanges (getCursorRanges contents cursors))
+             (show file ++ "@" ++ showPos viewport)
+       ]
 
 -- isWithinRange :: Ord a => a -> (a, a) -> Bool
 -- isWithinRange value (from, to) = value >= from && value < to
@@ -171,6 +173,11 @@ render app@App {..} = do
         else do
           hideCursor
 
+syncClipboard :: App -> IO App
+syncClipboard app@App {..} = case clipboard of
+  c:_ -> setClipboard c >> pure app
+  _ -> pure app
+
 isSaved :: App -> IO Bool
 isSaved App {..} = case file of
   Nothing -> return False
@@ -200,12 +207,12 @@ execute app@App {} ('e' : fname) = do
       then readFile fname
       else return ""
   return $ _contents .~ contents' $ _file ?~ fname $ app
-execute app ('@':c) = case readMay ("[" ++ c ++ "]") :: Maybe [Natural] of
+execute app ('@' : c) = case readMay ("[" ++ c ++ "]") :: Maybe [Natural] of
   Just is -> return $ _cursors . ix 0 %~ toNthIndicies (reverse is) $ app
   Nothing -> case mapM cursorByChar c :: Maybe MetaCursor of
     Just is -> return $ updateActiveCursorType (toTypes (reverse is)) app
     Nothing -> return $ _message ?~ ("Cursor update not recognized: " <> c, red) $ app
-execute app@App {..} ('#':c) = case mapM cursorByChar c :: Maybe MetaCursor of
+execute app@App {..} ('#' : c) = case mapM cursorByChar c :: Maybe MetaCursor of
   Just is -> return $ updateActiveCursorType (\cur -> findCursor contents cur (reverse is)) app
   Nothing -> return $ _message ?~ ("Cursor type set not recongnized: " <> c, red) $ app
 execute app c = return $ _message ?~ ("Unknown command: " <> c, red) $ app
@@ -215,7 +222,7 @@ handleSequence app@(App {..}) c
   | c == "\ESC" && mode == Insert = return $ undoCursor $ _mode .~ Normal $ app
   | c == "\ESC" = return $ _mode .~ Normal $ app
   | c == "\ESC:" = return $ toBestASTNode app
-  | c == "\ESC;" = return $ updateActiveCursorType (flip (findCursor contents) [Char, Line]) app 
+  | c == "\ESC;" = return $ updateActiveCursorType (flip (findCursor contents) [Char, Line]) app
   | c == "\ESCh" = return $ toPrevTypeSibling app
   | c == "\ESCH" = return $ toFirstTypeSibling app
   | c == "\ESCj" = return $ toChild app
@@ -225,42 +232,49 @@ handleSequence app@(App {..}) c
   | c == "\ESCu" = return $ undoCursor app
   | c == "\ESCU" = return $ redoCursor app
   | otherwise = case mode of
-      Normal -> return $ case c of
-        "\ESC[D" -> toPrevSibling app -- ←
-        "\ESC[B" -> toNextCousin app -- ↓
-        "\ESC[A" -> toPrevCousin app -- ↑
-        "\ESC[C" -> toNextSibling app -- →
-        "\ESC[H" -> toFirstSibling app -- Home
-        "\ESC[F" -> toLastSibling app -- End
-        "h" -> toPrevSibling app
-        "H" -> toFirstSibling app
-        "j" -> toNextCousin app
-        "k" -> toPrevCousin app
-        "l" -> toNextSibling app
-        "L" -> toLastSibling app
-        "i" -> toInsertMode app
-        "I" -> toInsertModeAfter app
-        "c" -> replace app
-        "C" -> replaceToNextSibling app
-        "\ESCc" -> toInsertMode $ deleteParent app
-        "d" -> delete app
-        "\ESCd" -> deleteParent app
-        "D" -> deleteToNextSibling app
-        -- "\ESCD" -> return $ deleteParentToNextSibling app
-        "y" -> yank app
-        "Y" -> yankToNextSibling app
-        "p" -> paste app
-        "P" -> pop app
-        "\ESCp" -> dropClipboard app
-        "u" -> undo app
-        "U" -> redo app
-        ":" -> _mode .~ Command "" $ app
-        "@" -> _mode .~ Command "@" $ app
-        "#" -> _mode .~ Command "#" $ app
+      Normal -> case c of
+        "\ESC[D" -> return $ toPrevSibling app -- ←
+        "\ESC[B" -> return $ toNextCousin app -- ↓
+        "\ESC[A" -> return $ toPrevCousin app -- ↑
+        "\ESC[C" -> return $ toNextSibling app -- →
+        "\ESC[H" -> return $ toFirstSibling app -- Home
+        "\ESC[F" -> return $ toLastSibling app -- End
+        "h" -> return $ toPrevSibling app
+        "H" -> return $ toFirstSibling app
+        "j" -> return $ toNextCousin app
+        "k" -> return $ toPrevCousin app
+        "l" -> return $ toNextSibling app
+        "L" -> return $ toLastSibling app
+        "i" -> return $ toInsertMode app
+        "I" -> return $ toInsertModeAfter app
+        "c" -> return $ replace app
+        "C" -> return $ replaceToNextSibling app
+        "\ESCc" -> return $ toInsertMode $ deleteParent app
+        "d" -> return $ delete app
+        "\ESCd" -> return $ deleteParent app
+        "D" -> return $ deleteToNextSibling app
+        -- "(" -> return $ surround "(" ")" app
+        -- ")" -> return $ unsurround "(" ")" app
+        -- "[" -> return $ surround "[" "]" app
+        -- "]" -> return $ unsurround "[" "]" app
+        -- "{" -> return $ surround "{" "}" app
+        -- "}" -> return $ unsurround "{" "}" app
+        -- "\"" -> return $ surround "\"" "\"" app
+        "y" -> syncClipboard $ yank app
+        "Y" -> syncClipboard $ yankToNextSibling app
+        "\ESCy" -> getClipboard >>= (\c -> return $ _clipboard %~ (c :) $ app)
+        "p" -> return $ paste app
+        "P" -> return $ pop app
+        "\ESCp" -> return $ dropClipboard app
+        "u" -> return $ undo app
+        "U" -> return $ redo app
+        ":" -> return $ _mode .~ Command "" $ app
+        "@" -> return $ _mode .~ Command "@" $ app
+        "#" -> return $ _mode .~ Command "#" $ app
         -- "v" -> _mode .~ Select Range (app ^. _cursors . ix 0) $ app
-        "`" -> _cursors %~ (\(cur NE.:| rest) -> cur NE.:| (cur : rest)) $ app
-        "~" -> _cursors %~ neTailSafe $ app
-        _ -> app
+        "`" -> return $ _cursors %~ (\(cur NE.:| rest) -> cur NE.:| (cur : rest)) $ app
+        "~" -> return $ _cursors %~ neTailSafe $ app
+        _ -> return $ app
       Insert -> return $ case c of
         "\DEL" -> deleteCharacter app
         "\ESC[D" -> toPrevChar app -- ←
@@ -293,7 +307,7 @@ handleSequence app@(App {..}) c
 mainLoop :: App -> IO App
 mainLoop app = do
   render app
-  getBlockOfChars stdin >>= handleSequence (_message .~ Nothing $ app)
+  getBlockOfChars stdin >>= \case s@('\ESC' : _) -> handleSequence (_message .~ Nothing $ app) s; s -> foldM (\a c -> handleSequence a [c]) app s
 
 -- From Haskeline
 -- Copyright 2007 Judah Jacobson

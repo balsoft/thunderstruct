@@ -76,11 +76,11 @@ nextConsistsOf t = case filter (`consistsOf` t) (enumFrom t) of [] -> t; x -> he
 (CN t a) >- b = CN t (a ?- b)
 
 nextTypeSibling :: String -> Cursor -> Cursor
-nextTypeSibling s cs@(c@(CN t i):cs') = coerceCursor s cs (lastDef c (filter ((t <) . cursorType) (childrenOf s cs')) : cs')
+nextTypeSibling s cs@(c@(CN t _):cs') = coerceCursor s cs (lastDef c (filter ((t <) . cursorType) (childrenOf s cs')) : cs')
 nextTypeSibling _ [] = []
 
 prevTypeSibling :: String -> Cursor -> Cursor
-prevTypeSibling s cs@(c@(CN t i):cs') = coerceCursor s cs (headDef c (filter ((t >) . cursorType) (childrenOf s cs')) : cs')
+prevTypeSibling s cs@(c@(CN t _):cs') = coerceCursor s cs (headDef c (filter ((t >) . cursorType) (childrenOf s cs')) : cs')
 prevTypeSibling _ [] = []
 
 nthType :: Natural -> CursorType
@@ -153,19 +153,19 @@ compareCursors _ [] = GT
 
 findCursor :: String -> Cursor -> MetaCursor -> Cursor
 findCursor _ _ [] = []
-findCursor s c mc = case cursors of
+findCursor s c mc@(_:mc') = case cursors of
   x : _ -> fst x
-  _ -> []
+  _ -> findCursor s c mc'
   where
     cmp = metaCursor c `compareCursors` mc
     ranges = reachableRanges s mc
-    r = getCursorRange s c
+    r@(pos, len) = getCursorRange s c
 
     covered = filter (\(_, r') -> r `covers` r') ranges
     cover = filter (\(_, r') -> r' `covers` r) ranges
 
-    before = filter (\(_, r') -> r' < r) ranges
-    after = filter (\(_, r') -> r' > r) ranges
+    before = reverse $ filter (\(_, (pos', len')) -> pos' < pos && pos' + len' >= pos && pos' + len' <= pos) ranges
+    after = filter (\(_, (pos', _)) -> pos' > pos && pos' < pos + len) ranges
 
     cursors = covered ++ cover ++ (if cmp == LT then before ++ after else after ++ before)
 
@@ -182,6 +182,7 @@ findCursor' s c mc@(_:mc') = case covered ++ cover of
 
     covered = filter (\(_, r') -> r `covers` r') ranges
     cover = filter (\(_, r') -> r' `covers` r) ranges
+
 
 metaCursor :: Cursor -> MetaCursor
 metaCursor = map cursorType
@@ -372,7 +373,7 @@ lastChar s (_:c) = CN Char (pos' - pos) : c
   where
     (pos, _) = getCursorRange s c
     (pos', _) = getCursorRange s $ nextSibling s c
-lastChar s _ = undefined
+lastChar _ _ = undefined
 
 parent :: Cursor -> Cursor
 parent = drop 1
