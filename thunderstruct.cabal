@@ -80,6 +80,8 @@ executable thunderstruct
                       process,
                       colour,
                       safe,
+                      tree-sitter,
+                      tree-sitter-haskell,
 
     -- Directories containing source files.
     hs-source-dirs:   app

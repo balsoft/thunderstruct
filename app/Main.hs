@@ -5,6 +5,7 @@
 
 module Main (main) where
 
+import AST
 import App
 import Control.Lens
 import Control.Monad
@@ -14,20 +15,26 @@ import Data.Colour
 import Data.Colour.Names (darkblue, lightblue, orange, red, white)
 import Data.Colour.SRGB (sRGB, sRGB24show)
 import Data.Default.Class (Default (def))
-import Data.List (genericDrop, genericTake, intercalate, sort, sortBy, sortOn)
+import Data.List (genericDrop, genericLength, genericTake, intercalate, sort, sortBy, sortOn)
 import Data.List.Index (modifyAt)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (isJust, maybeToList)
+import Foreign (Ptr, Storable (..), malloc, mallocArray, nullPtr, peek, poke)
+import Foreign.C (newCStringLen)
 import GHC.IO.Handle
 import Numeric.Natural (Natural)
 import Safe
+import System.Clipboard (getClipboard, setClipboard)
 import System.Console.ANSI
 import System.Directory
 import System.Directory.Internal.Prelude (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO
+import TreeSitter.Haskell
+import qualified TreeSitter.Node as TS
+import TreeSitter.Parser
+import TreeSitter.Tree (ts_tree_root_node_p)
 import Util
-import System.Clipboard (getClipboard, setClipboard)
 
 setup :: IO ()
 setup = do
@@ -72,7 +79,7 @@ statusBar width viewport App {..} =
              width
              AlignLeft
              ' '
-             (show mode ++ "@" ++ show (reverse $ NE.head cursors) ++ "→" ++ showRanges (getCursorRanges contents cursors))
+             (show mode ++ "@" ++ show (reverse $ NE.head cursors) ++ "→" ++ showRanges (getCursorRanges contents ast cursors))
              (show file ++ "@" ++ showPos viewport)
        ]
 
@@ -82,13 +89,13 @@ statusBar width viewport App {..} =
 optimalViewport :: (Natural, Natural) -> App -> (Natural, Natural)
 optimalViewport (h, w) App {..} = (vy, vx)
   where
-    ((y, x), (y', x')) = getCursorAbsolute contents (NE.head cursors)
+    ((y, x), (y', x')) = getCursorAbsolute contents ast (NE.head cursors)
     vx = max (x ?- w) (x' ?- w)
     vy = ((y + y') `div` 2) ?- (h `div` 2)
 
-relativeCursorPosition :: String -> (Natural, Natural) -> Cursor -> ((Natural, Natural), (Natural, Natural))
-relativeCursorPosition buf (vy, vx) cursor =
-  let ((y, x), (y_, x_)) = getCursorAbsolute buf cursor
+relativeCursorPosition :: String -> Maybe Node -> (Natural, Natural) -> Cursor -> ((Natural, Natural), (Natural, Natural))
+relativeCursorPosition buf ast (vy, vx) cursor =
+  let ((y, x), (y_, x_)) = getCursorAbsolute buf ast cursor
    in ((y ?- vy, x ?- vx), (y_ ?- vy, x_ ?- vx))
 
 data RegionBoundary = Start (Colour Float, Colour Float) (Natural, Natural) | End (Colour Float, Colour Float) (Natural, Natural) deriving (Eq)
@@ -155,9 +162,9 @@ render app@App {..} = do
       let (vy, vx) = optimalViewport (fromIntegral h, fromIntegral w) app
       let content = (\c -> align (fromIntegral w) AlignLeft ' ' c "") . genericDrop vx <$> genericDrop vy (lines contents)
       let activeCursor = NE.head cursors
-      let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition contents (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
+      let cursorParents = reverse $ take 3 [(cursorColor app n, relativeCursorPosition contents ast (vy, vx) (drop n activeCursor)) | n <- [0 .. length activeCursor]]
       -- let cursorPeers = zip peerColors [relativeCursorPosition contents (vy, vx) cur | cur <- map (\c -> c contents activeCursor) [prevSibling, (\c s -> nextSibling c $ parent s), (\c s -> prevSibling c $ parent s), nextSibling]]
-      let ((y, x), (y', x')) = relativeCursorPosition contents (vy, vx) activeCursor
+      let ((y, x), (y', x')) = relativeCursorPosition contents ast (vy, vx) activeCursor
       -- We're assuming that if y == y', then x < x'
       let coloredContent = lines $ colorRegions cursorParents content
       let !screen = map (clearLineCode ++) $ align (fromIntegral h) AlignRight "" coloredContent (statusBar (fromIntegral w) (vy, vx) app)
@@ -175,7 +182,7 @@ render app@App {..} = do
 
 syncClipboard :: App -> IO App
 syncClipboard app@App {..} = case clipboard of
-  c:_ -> setClipboard c >> pure app
+  c : _ -> setClipboard c >> pure app
   _ -> pure app
 
 isSaved :: App -> IO Bool
@@ -213,7 +220,7 @@ execute app ('@' : c) = case readMay ("[" ++ c ++ "]") :: Maybe [Natural] of
     Just is -> return $ updateActiveCursorType (toTypes (reverse is)) app
     Nothing -> return $ _message ?~ ("Cursor update not recognized: " <> c, red) $ app
 execute app@App {..} ('#' : c) = case mapM cursorByChar c :: Maybe MetaCursor of
-  Just is -> return $ updateActiveCursorType (\cur -> findCursor contents cur (reverse is)) app
+  Just is -> return $ updateActiveCursorType (\cur -> findCursor contents ast cur (reverse is)) app
   Nothing -> return $ _message ?~ ("Cursor type set not recongnized: " <> c, red) $ app
 execute app c = return $ _message ?~ ("Unknown command: " <> c, red) $ app
 
@@ -222,7 +229,7 @@ handleSequence app@(App {..}) c
   | c == "\ESC" && mode == Insert = return $ undoCursor $ _mode .~ Normal $ app
   | c == "\ESC" = return $ _mode .~ Normal $ app
   | c == "\ESC:" = return $ toBestASTNode app
-  | c == "\ESC;" = return $ updateActiveCursorType (flip (findCursor contents) [Char, Line]) app
+  | c == "\ESC;" = return $ updateActiveCursorType (flip (findCursor contents ast) [Char, Line]) app
   | c == "\ESCh" = return $ toPrevTypeSibling app
   | c == "\ESCH" = return $ toFirstTypeSibling app
   | c == "\ESCj" = return $ toChild app
@@ -304,10 +311,33 @@ handleSequence app@(App {..}) c
         "l" -> toNextSibling app
         _ -> app
 
-mainLoop :: App -> IO App
-mainLoop app = do
-  render app
-  getBlockOfChars stdin >>= \case s@('\ESC' : _) -> handleSequence (_message .~ Nothing $ app) s; s -> foldM (\a c -> handleSequence a [c]) app s
+parseASTTree :: Ptr Parser -> String -> IO (Maybe AST.Node)
+parseASTTree parser s = do
+  (str, len) <- newCStringLen s
+  tree <- ts_parser_parse_string parser nullPtr str len
+  n <- malloc
+  ts_tree_root_node_p tree n
+  rootNode <- peek n
+  Just <$> traverseTree rootNode
+  where
+    traverseTree :: TS.Node -> IO AST.Node
+    traverseTree node@(TS.Node {..}) = do
+      children <- mallocArray (fromIntegral nodeChildCount)
+      tsNode <- malloc
+      poke tsNode nodeTSNode
+      TS.ts_node_copy_child_nodes tsNode children
+      nodef <- case nodeChildCount of
+        0 -> pure Token
+        n -> Parens <$> forM [0 .. n - 1] (\i -> peekElemOff children (fromIntegral i) >>= traverseTree)
+      return (nodef (fromIntegral $ TS.nodeStartByte node) (nodeEndByte ?- TS.nodeStartByte node))
+
+mainLoop :: Ptr Parser -> App -> IO App
+mainLoop parser app = do
+  ast <- parseASTTree parser (app ^. _contents)
+  -- hPrint stderr ast
+  let app' = app {ast = ast}
+  render app'
+  getBlockOfChars stdin >>= \case s@('\ESC' : _) -> handleSequence (_message .~ Nothing $ app') s; s -> foldM (\a c -> handleSequence a [c]) app' s
 
 -- From Haskeline
 -- Copyright 2007 Judah Jacobson
@@ -327,6 +357,8 @@ getBlockOfChars h = do
 main :: IO ()
 main = do
   setup
+  parser <- ts_parser_new
+  ts_parser_set_language parser tree_sitter_haskell
   app <-
     getArgs
       >>= ( \case
@@ -340,4 +372,4 @@ main = do
                     return $ _file ?~ fname $ def
               _ -> return def
           )
-  iterateM_ mainLoop app
+  iterateM_ (mainLoop parser) app
