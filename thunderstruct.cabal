@@ -62,7 +62,7 @@ executable thunderstruct
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    App, AST, Util, Cursor, System.Clipboard
+    other-modules:    App, Parser, Util, Cursor, System.Clipboard
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -80,6 +80,7 @@ executable thunderstruct
                       process,
                       colour,
                       safe,
+                      split,
 
     -- Directories containing source files.
     hs-source-dirs:   app

@@ -103,62 +103,62 @@ if' :: Bool -> Natural
 if' True = 1
 if' False = 0
 
-wordSep :: String -> Natural
-wordSep = if' . (`elem` " \n") . head
+-- wordSep :: String -> Natural
+-- wordSep = if' . (`elem` " \n") . head
 
-wordSep' :: String -> Natural
-wordSep' = if' . (\c -> isPunctuation c || c `elem` " \n") . head
+-- wordSep' :: String -> Natural
+-- wordSep' = if' . (\c -> isPunctuation c || c `elem` " \n") . head
 
-lineSep :: String -> Natural
-lineSep = if' . (== '\n') . head
+-- lineSep :: String -> Natural
+-- lineSep = if' . (== '\n') . head
 
-paraSep :: String -> Natural
-paraSep = (* 2) . if' . isPrefixOf "\n\n"
+-- paraSep :: String -> Natural
+-- paraSep = (* 2) . if' . isPrefixOf "\n\n"
 
-sentSep :: [Char] -> Natural
-sentSep = (* 2) . if' . (\c -> ". " `isPrefixOf` c || ".\n" `isPrefixOf` c)
+-- sentSep :: [Char] -> Natural
+-- sentSep = (* 2) . if' . (\c -> ". " `isPrefixOf` c || ".\n" `isPrefixOf` c)
 
-splitWords :: [Char] -> [(Natural, Natural)]
-splitWords = splitBy'' wordSep'
+-- splitWords :: [Char] -> [(Natural, Natural)]
+-- splitWords = splitBy'' wordSep'
 
-splitWORDs :: [Char] -> [(Natural, Natural)]
-splitWORDs = splitBy'' wordSep
+-- splitWORDs :: [Char] -> [(Natural, Natural)]
+-- splitWORDs = splitBy'' wordSep
 
-splitLines :: [Char] -> [(Natural, Natural)]
-splitLines = splitBy'' lineSep
+-- splitLines :: [Char] -> [(Natural, Natural)]
+-- splitLines = splitBy'' lineSep
 
-splitParas :: [Char] -> [(Natural, Natural)]
-splitParas = splitBy'' paraSep
+-- splitParas :: [Char] -> [(Natural, Natural)]
+-- splitParas = splitBy'' paraSep
 
-splitSentences :: [Char] -> [(Natural, Natural)]
-splitSentences = splitBy'' sentSep
+-- splitSentences :: [Char] -> [(Natural, Natural)]
+-- splitSentences = splitBy'' sentSep
 
-nthThing :: ([a] -> Natural) -> [a] -> Natural -> (Natural, Natural)
-nthThing predicate buf n = case s ?+! n of
-  Just s' -> s'
-  Nothing -> case s of
-    _ : _ -> (uncurry (+) (last s), 0)
-    _ -> (0, 0)
-  where
-    s = splitBy'' predicate buf
+-- nthThing :: ([a] -> Natural) -> [a] -> Natural -> (Natural, Natural)
+-- nthThing predicate buf n = case s ?+! n of
+--   Just s' -> s'
+--   Nothing -> case s of
+--     _ : _ -> (uncurry (+) (last s), 0)
+--     _ -> (0, 0)
+--   where
+--     s = splitBy'' predicate buf
 
-nthWord :: [Char] -> Natural -> (Natural, Natural)
-nthWord = nthThing wordSep'
+-- nthWord :: [Char] -> Natural -> (Natural, Natural)
+-- nthWord = nthThing wordSep'
 
-nthWORD :: [Char] -> Natural -> (Natural, Natural)
-nthWORD = nthThing wordSep
+-- nthWORD :: [Char] -> Natural -> (Natural, Natural)
+-- nthWORD = nthThing wordSep
 
-nthLine :: [Char] -> Natural -> (Natural, Natural)
-nthLine = nthThing lineSep
+-- nthLine :: [Char] -> Natural -> (Natural, Natural)
+-- nthLine = nthThing lineSep
 
-nthPara :: [Char] -> Natural -> (Natural, Natural)
-nthPara = nthThing paraSep
+-- nthPara :: [Char] -> Natural -> (Natural, Natural)
+-- nthPara = nthThing paraSep
 
-nthSentence :: [Char] -> Natural -> (Natural, Natural)
-nthSentence = nthThing sentSep
+-- nthSentence :: [Char] -> Natural -> (Natural, Natural)
+-- nthSentence = nthThing sentSep
 
-natRange :: Natural -> Natural -> [Natural]
-natRange f t = fromIntegral <$> [fromIntegral f .. (fromIntegral t - 1 :: Int)]
+-- natRange :: Natural -> Natural -> [Natural]
+-- natRange f t = fromIntegral <$> [fromIntegral f .. (fromIntegral t - 1 :: Int)]
 
 -- rangeWith s f = reverse $ foldl (\lst word -> case lst of ((pos, len) : _) -> (pos + len, genericLength word) : lst; [] -> [(0, genericLength word)]) [] (f s)
 
