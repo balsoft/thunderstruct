@@ -9,7 +9,7 @@ import App
 import Control.Lens
 import Control.Monad
 import Control.Monad.Loops (iterateM_)
-import Cursor
+import Parser
 import Data.Colour
 import Data.Colour.Names (darkblue, lightblue, orange, red, white)
 import Data.Colour.SRGB (sRGB, sRGB24show)

@@ -2,12 +2,14 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Parser where
 
 import Control.Applicative (some)
 import Control.Monad (void)
-import Cursor
 import Data.Char (digitToInt)
 import Data.Functor.Identity
 import Text.Parsec hiding (Line)
@@ -15,12 +17,84 @@ import Text.Parsec.Language (haskellStyle)
 import Text.Parsec.String
 import Text.Parsec.Token
 import Prelude hiding (Char, Word)
+import Numeric.Natural
+import Util
+import Data.Maybe
+import Data.Foldable
+
+
+data Char = Char deriving Show
+data Word = Word deriving Show
+data Line = Line deriving Show
+data ASTNode = ASTNode deriving Show
+data File = File deriving Show
+
+class (Show a, Show b, HasParser a, HasParser b) => ConsistsOf a b
+instance ConsistsOf Word Char
+instance ConsistsOf Line Char
+instance ConsistsOf Line Word
+instance ConsistsOf ASTNode Char
+instance ConsistsOf ASTNode Word
+instance ConsistsOf ASTNode ASTNode
+instance ConsistsOf File Char
+instance ConsistsOf File Word
+instance ConsistsOf File Line
+instance ConsistsOf File ASTNode
+
+class HasParser a where
+  parser :: CursorTree Identity a () -> Parser (CursorTree [] a (SourcePos, SourcePos))
+
+data CursorTree f t a where
+  CursorTreeNode :: (ConsistsOf t t') => { _type :: t, contents :: a, children :: f (CursorTree f t' a) } -> CursorTree f t a
+  CursorTreeLeaf :: (Show t) => { _type :: t, contents :: a } -> CursorTree f t a
+
+a >--> b = CursorTreeNode a () (Identity b)
+a >--| b = CursorTreeNode a () (Identity (CursorTreeLeaf b ()))
+
+infixr 8 >-->
+
+deriving instance Functor f => Functor (CursorTree f t)
+deriving instance Foldable f => Foldable (CursorTree f t)
+deriving instance Traversable f => Traversable (CursorTree f t)
+
+instance (Show a, Foldable f) => Show (CursorTree f t a) where
+  show (CursorTreeNode {..}) = show _type <> " " <> show contents <> childrens
+    where
+      fs = toList children
+      childrens = case fs of
+        [c] -> "→" <> show c
+        _ -> " " <> show fs
+  show (CursorTreeLeaf {..}) = show _type <> " " <> show contents
 
 instance HasParser File where
   parser (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf File)) (void $ many anyChar <* eof)
-  parser (CursorTreeNode File n () (Identity l)) = parse' (CursorTreeNode File n) (manyTill (parser l) eof)
+  parser (CursorTreeNode File () (Identity l)) = parse' (CursorTreeNode File) (many (parser l))
+
+instance HasParser ASTNode where
+  parser (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf ASTNode)) (void node')
+  parser (CursorTreeNode ASTNode () (Identity a)) = do
+    i <- getInput
+    from <- sourcePos
+    node'
+    to <- sourcePos
+    i' <- getInput
+    setInput (take (length i - length i') i)
+    res <- some $ parser a
+    setInput (drop (length i - length i') i)
+    pure $ CursorTreeNode ASTNode (from, to) res
 
 
+instance HasParser Line where
+  parser (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf Line)) (void $ tilSep anyChar strSep)
+  parser (CursorTreeNode Line () (Identity l)) = parse' (CursorTreeNode Line) (tilSep (parser l) strSep)
+
+instance HasParser Word where
+  parser (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf Word)) (void $ tilSep anyChar wordSep)
+  parser (CursorTreeNode Word () (Identity w)) = parse' (CursorTreeNode Word) (tilSep (parser w) wordSep)
+
+instance HasParser Char where
+  parser (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf Char)) (void anyChar)
+  parser (CursorTreeNode Char () (Identity c)) = undefined
 
 parseFile :: String -> CursorTree Identity File () -> Maybe (CursorTree [] File (SourcePos, SourcePos))
 parseFile s f = case parse (parser f) "" s of
@@ -37,38 +111,29 @@ parse' f parser = do
   to <- sourcePos
   pure $ f (from, to) children
 
--- file :: CursorTree Identity File () -> Parser (CursorTree [] File (SourcePos, SourcePos))
--- file (CursorTreeLeaf {..}) = parse' (flip $ const (CursorTreeLeaf File)) (void $ many anyChar <* eof)
--- file (CursorTreeNode File _ () (Identity l)) = parse' (CursorTreeNode File FileOfLine) (manyTill (item l) eof)
--- file (CursorTreeNode File _ () (Identity w)) = parse' (CursorTreeNode FileOfWord) (manyTill (word w) eof)
--- file (CursorTreeNode File _ () (Identity c)) = parse' (CursorTreeNode FileOfChar) (manyTill (char' c) eof)
--- file (CursorTreeNode File _ () (Identity n)) = parse' (CursorTreeNode FileOfASTNode) (many $ node n)
-
--- item :: CursorTree Identity c () -> Parser (CursorTree [] c (SourcePos, SourcePos))
--- item l@(CursorTreeNode Line _ () _) = line l
-
 orEof :: Parser a -> Parser ()
-orEof p = try (void p) <|> eof
+orEof p = void p <|> eof
 
-tilSep :: Parser p -> Parser s -> Parser [p]
-tilSep p s = manyTill p (orEof s)
+parseIfNotContains :: Show b => Parser a -> Parser b -> Parser a
+parseIfNotContains a b = do
+  i <- getInput
+  l <- lookAhead $ length <$> manyTill anyChar b
+  setInput (take l i)
+  res <- a
+  setInput (drop l i)
+  b
+  pure res
+
+tilSep :: Parser a -> Parser s -> Parser [a]
+tilSep a sep = parseIfNotContains (some a) (void sep <|> eof)
+
+takeWhileJust :: [Maybe a] -> [a]
+takeWhileJust =
+   foldr (\x acc -> maybe [] (:acc) x) []
 
 strSep = char '\n'
 
--- line :: CursorTree Identity Line () -> Parser (CursorTree [] Line (SourcePos, SourcePos))
--- line (CursorTreeLeaf {..}) = parse' (flip $ const CursorTreeLeaf) (void $ tilSep anyChar strSep)
--- line (CursorTreeNode Line LineOfWord () (Identity w)) = parse' (CursorTreeNode LineOfWord) (tilSep (word w) strSep)
--- line (CursorTreeNode Line LineOfChar () (Identity c)) = parse' (CursorTreeNode LineOfChar) (tilSep (char' c) strSep)
-
-wordSep = some (oneOf "[]{}()., ")
-
--- word :: CursorTree Identity Word () -> Parser (CursorTree [] Word (SourcePos, SourcePos))
--- word (CursorTreeLeaf {..}) = parse' (flip $ const CursorTreeLeaf) (void $ tilSep anyChar wordSep)
--- word (CursorTreeNode Word WordOfChar () (Identity c)) = parse' (CursorTreeNode WordOfChar) (tilSep (char' c) wordSep)
-
--- char' :: CursorTree Identity Char () -> Parser (CursorTree [] Char (SourcePos, SourcePos))
--- char' (CursorTreeLeaf {..}) = parse' (flip $ const CursorTreeLeaf Char) (void anyChar)
--- char' (CursorTreeNode {}) = undefined -- GHC can't figure out that it's impossible (at least I think it's impossible?)
+wordSep = some (oneOf "[]{}().,\n ")
 
 whiteSpace :: Parser ()
 decimal :: Parser Integer
@@ -231,33 +296,32 @@ stringLiteral =
 --           (spaces *> (Parens <$> many node) <* spaces)
 --   parens' from <$> sourcePos
 
--- node' :: Parser (CursorTree [] ASTNode ((SourcePos, SourcePos), String))
--- node' =
---   do
---     from <- sourcePos
---     i <- getInput
---     nodef <-
---       (Parser.stringLiteral >> pure CursorTreeLeaf)
---         <|> (some (noneOf "(){}[]\n ") >> pure CursorTreeLeaf)
---         <|> flip (CursorTreeNode ASTNodeOfASTNode) <$> between (char '(') (char ')') (Parser.whiteSpace *> many node')
---         <|> flip (CursorTreeNode ASTNodeOfASTNode) <$> between (char '{') (char '}') (Parser.whiteSpace *> many node')
---         <|> flip (CursorTreeNode ASTNodeOfASTNode) <$> between (char '[') (char ']') (Parser.whiteSpace *> many node')
---     to <- sourcePos
---     i' <- getInput
---     Parser.whiteSpace
---     pure $ nodef ((from, to), take (length i - length i') i)
+node' :: Parser (CursorTree [] ASTNode (SourcePos, SourcePos))
+node' =
+  do
+    from <- sourcePos
+    i <- getInput
+    nodef <-
+      (Parser.stringLiteral >> pure (CursorTreeLeaf ASTNode))
+        <|> (some (noneOf "(){}[]\n ") >> pure (CursorTreeLeaf ASTNode))
+        <|> flip (CursorTreeNode ASTNode) <$> between (char '(') (char ')') (Parser.whiteSpace *> many node')
+        <|> flip (CursorTreeNode ASTNode) <$> between (char '{') (char '}') (Parser.whiteSpace *> many node')
+        <|> flip (CursorTreeNode ASTNode) <$> between (char '[') (char ']') (Parser.whiteSpace *> many node')
+    to <- sourcePos
+    i' <- getInput
+    Parser.whiteSpace
+    pure $ nodef (from, to)
 
--- node :: CursorTree Identity ASTNode () -> Parser (CursorTree [] ASTNode (SourcePos, SourcePos))
--- node cur = traverseASTTree cur <$> node'
---   where
---     parseInContents p c s = case parse (many (p c) <* eof) "" s of
---       Right r -> r
---       Left _ -> []
---     traverseASTTree :: CursorTree Identity ASTNode () -> CursorTree [] ASTNode ((SourcePos, SourcePos), String) -> CursorTree [] ASTNode (SourcePos, SourcePos)
---     traverseASTTree (CursorTreeLeaf {}) (CursorTreeLeaf {..}) = CursorTreeLeaf ASTNode (fst contents)
---     traverseASTTree (CursorTreeLeaf {}) (CursorTreeNode {..}) = CursorTreeLeaf ASTNode (fst contents)
---     traverseASTTree (CursorTreeNode ASTNode ASTNodeOfASTNode _ _) (CursorTreeLeaf {..}) = CursorTreeNode ASTNode ASTNodeOfASTNode (fst contents) []
---     traverseASTTree (CursorTreeNode ASTNode ASTNodeOfASTNode _ (Identity cur')) (CursorTreeNode ASTNode ASTNodeOfASTNode contents children) = CursorTreeNode ASTNode ASTNodeOfASTNode (fst contents) (fmap (traverseASTTree cur') children)
---     traverseASTTree (CursorTreeNode ASTNode ASTNodeOfWord _ (Identity cur')) c = CursorTreeNode ASTNode ASTNodeOfWord (fst (contents c)) (parseInContents word cur' (snd (contents c)))
---     traverseASTTree (CursorTreeNode ASTNode ASTNodeOfChar _ (Identity cur')) c = CursorTreeNode ASTNode ASTNodeOfChar (fst (contents c)) (parseInContents char' cur' (snd (contents c)))
---     traverseASTTree (CursorTreeNode {}) (CursorTreeNode {}) = undefined -- node' only produces ASTNodeOfASTNode
+data Selector a = None a | One Natural a |  Many [Natural] a | All a deriving (Functor, Foldable, Show, Eq)
+
+select :: Selector [a] -> [a]
+select (All a) = a
+select (Many n a) = fmap snd $ filter ((`elem` n) . fst) $ zip [0..] a
+select (One n a) = maybeToList (a ?+! n)
+select (None _) = []
+
+getCursorRange :: CursorTree Selector a () -> CursorTree [] b (SourcePos, SourcePos) -> [(SourcePos, SourcePos)]
+getCursorRange (CursorTreeLeaf {}) (CursorTreeLeaf {..}) = [contents]
+getCursorRange (CursorTreeLeaf {}) (CursorTreeNode {..}) = [contents]
+getCursorRange (CursorTreeNode _ () s) (CursorTreeNode _ _ ns) = concat $ select $ fmap (\s' -> fmap (getCursorRange s') ns) s
+getCursorRange (CursorTreeNode {}) (CursorTreeLeaf {}) = []
